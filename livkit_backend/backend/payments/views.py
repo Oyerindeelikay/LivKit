@@ -1,0 +1,147 @@
+import json
+import stripe
+from django.conf import settings
+from django.http import HttpResponse
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import Entitlement, PaymentLog
+from accounts.permissions import IsAuthenticatedAndNotBanned
+
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+
+# ---------- STRIPE ---------- #
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
+
+class StripeCreateCheckoutView(APIView):
+    permission_classes = [IsAuthenticated, IsAuthenticatedAndNotBanned]
+
+    def post(self, request):
+        user = request.user
+
+        # already paid → don't allow repeat payment
+        entitlement, _ = Entitlement.objects.get_or_create(user=user)
+        if entitlement.is_active:
+            return Response({"detail": "You’ve already unlocked premium content!"}, status=200)
+
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            success_url=settings.FRONTEND_SUCCESS_URL,
+            cancel_url=settings.FRONTEND_CANCEL_URL,
+            customer_email=user.email,
+            line_items=[
+                {
+                    "price": settings.STRIPE_PRICE_ID,
+                    "quantity": 1,
+                }
+            ],
+            metadata={"user_id": user.id}
+        )
+
+        return Response({"checkout_url": session.url})
+
+
+# ---------- STRIPE WEBHOOK ---------- #
+
+
+
+@csrf_exempt
+def stripe_webhook(request):
+    print(">>>>>>> WEBHOOK HIT")
+    payload = request.body
+    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+    endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+    except Exception as e:
+        return HttpResponse(status=400)
+    print(">>>>>>> WEBHOOK HIT")
+    event_type = event["type"]
+
+    if event_type == "checkout.session.completed":
+        session = event["data"]["object"]
+        user_id = session["metadata"]["user_id"]
+        transaction_id = session["payment_intent"]
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = User.objects.get(id=user_id)
+
+        entitlement, _ = Entitlement.objects.get_or_create(user=user)
+        entitlement.activate("stripe", transaction_id)
+
+        PaymentLog.objects.create(
+            user=user,
+            provider="stripe",
+            event="checkout.session.completed",
+            reference=transaction_id,
+            payload=session
+        )
+
+    return HttpResponse(status=200)
+
+
+# ---------- GOOGLE PLAY VERIFY ---------- #
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+
+class GoogleVerifyPurchaseView(APIView):
+    permission_classes = [IsAuthenticated, IsAuthenticatedAndNotBanned]
+
+    def post(self, request):
+        user = request.user
+
+        entitlement, _ = Entitlement.objects.get_or_create(user=user)
+        if entitlement.is_active:
+            return Response({
+                "already_paid": True,
+                "message": "You’ve already unlocked premium content!"
+            }, status=200)
+
+
+
+        purchase_token = request.data.get("purchaseToken")
+        product_id = request.data.get("productId")
+        package_name = request.data.get("packageName")
+
+        if not (purchase_token and product_id and package_name):
+            return Response({"error": "Missing fields"}, status=400)
+
+        credentials = service_account.Credentials.from_service_account_file(
+            settings.GOOGLE_SERVICE_ACCOUNT_FILE,
+            scopes=["https://www.googleapis.com/auth/androidpublisher"],
+        )
+
+        service = build("androidpublisher", "v3", credentials=credentials)
+        result = service.purchases().products().get(
+            packageName=package_name,
+            productId=product_id,
+            token=purchase_token
+        ).execute()
+
+        # Google's response
+        purchase_state = result.get("purchaseState")   # 0 = Purchased
+        order_id = result.get("orderId")
+
+        if purchase_state != 0:
+            return Response({"error": "Purchase not valid"}, status=400)
+
+        entitlement.activate("playstore", order_id)
+
+        PaymentLog.objects.create(
+            user=user,
+            provider="playstore",
+            event="purchase.verified",
+            reference=order_id,
+            payload=result
+        )
+
+        return Response({"detail": "Access granted"})

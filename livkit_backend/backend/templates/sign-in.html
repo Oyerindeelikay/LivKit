@@ -1,0 +1,91 @@
+{% extends 'headerandfooter.html' %}
+{% block content %}
+<br>
+<br>
+<br>
+<br>
+<section class="sign-in-page">
+   <div class="container">
+      <div class="justify-content-center align-items-center height-self-center row">
+         <div class="align-self-center col-lg-5 col-md-12">
+            <div class="sign-user_card">
+               <div class="sign-in-page-data">
+                  <div class="sign-in-from w-100 m-auto">
+                     <h3 class="mb-3 text-center">Sign in</h3>
+
+                     {% if error %}
+                        <div class="alert alert-danger text-center">
+                           {{ error }}
+                        </div>
+                     {% endif %}
+
+                     <form method="post" class="mt-4">
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                           <input
+                              name="email"
+                              placeholder="Enter email"
+                              autocomplete="email"
+                              required
+                              type="email"
+                              class="mb-0 form-control"
+                           />
+                        </div>
+
+                        <div class="mb-3">
+                           <input
+                              name="password"
+                              placeholder="Password"
+                              required
+                              type="password"
+                              class="mb-0 form-control"
+                           />
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center sign-info">
+                           <button type="submit" class="btn btn-btn btn-primary">
+                              Sign in
+                           </button>
+
+                           <div class="custom-control custom-checkbox d-inline-block">
+                              <input
+                                 type="checkbox"
+                                 class="form-check-input mx-2"
+                                 id="rememberMe"
+                                 name="remember"
+                              />
+                              <label class="form-check-label" for="rememberMe">
+                                 Remember Me
+                              </label>
+                           </div>
+                        </div>
+                     </form>
+                  </div>
+               </div>
+
+               <div class="mt-3">
+                  <div class="d-flex justify-content-center links">
+                     Don't have an account?
+                     <a class="text-primary ms-2" href="{% url 'signup' %}">
+                        Sign Up
+                     </a>
+                  </div>
+
+                  <div class="d-flex justify-content-center links">
+                     <a class="f-link" href="{% url 'recover-password' %}">
+                        Forgot your password?
+                     </a>
+                  </div>
+               </div>
+
+            </div>
+         </div>
+      </div>
+   </div>
+</section>
+<br>
+<br>
+<br>
+<br>
+{% endblock %}
