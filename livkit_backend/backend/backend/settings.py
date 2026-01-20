@@ -33,7 +33,11 @@ SECRET_KEY = 'django-insecure-q$mvcx_r7)3vgpmiliudisugniy-@8cogbj-mfz-%6l(p4n+ef
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "livkit.onrender.com",
+    "localhost",
+    "127.0.0.1",
+]
 
 
 # Application definition
