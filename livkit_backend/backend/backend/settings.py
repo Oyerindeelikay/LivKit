@@ -57,7 +57,6 @@ INSTALLED_APPS = [
     'django_celery_beat',
 
     'streaming',
-    '*',
 ]
 
 
