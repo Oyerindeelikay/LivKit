@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:uni_links/uni_links.dart';
+import 'package:app_links/app_links.dart';
 
 import 'navigation/auth_gate.dart';
 import 'navigation/app_navigator.dart';
@@ -18,7 +18,8 @@ class LivkitApp extends StatefulWidget {
 }
 
 class _LivkitAppState extends State<LivkitApp> {
-  StreamSubscription? _linkSub;
+  final AppLinks _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSub;
 
   @override
   void initState() {
@@ -29,19 +30,22 @@ class _LivkitAppState extends State<LivkitApp> {
   Future<void> _initDeepLinks() async {
     try {
       // 🔹 Cold start (app closed)
-      final initialUri = await getInitialUri();
+      final Uri? initialUri = await _appLinks.getInitialLink();
       if (initialUri != null) {
         _handleUri(initialUri);
       }
 
-      // 🔹 App already running
-      _linkSub = uriLinkStream.listen((uri) {
-        if (uri != null) {
+      // 🔹 App already running / backgrounded
+      _linkSub = _appLinks.uriLinkStream.listen(
+        (Uri uri) {
           _handleUri(uri);
-        }
-      });
+        },
+        onError: (_) {
+          // Ignore malformed links safely
+        },
+      );
     } catch (_) {
-      // Silently fail (safe)
+      // Fail silently – deep links should never crash the app
     }
   }
 
