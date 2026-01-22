@@ -26,7 +26,11 @@ class StripeCreateCheckoutView(APIView):
         # already paid → don't allow repeat payment
         entitlement, _ = Entitlement.objects.get_or_create(user=user)
         if entitlement.is_active:
-            return Response({"detail": "You’ve already unlocked premium content!"}, status=200)
+            return Response({
+                "already_paid": true,
+                "message": "You’ve already unlocked premium content!"
+            })
+
 
         session = stripe.checkout.Session.create(
             mode="payment",
