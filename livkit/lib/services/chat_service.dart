@@ -73,7 +73,7 @@ class ChatService {
       final isProd = bool.fromEnvironment('dart.vm.product');
       final base = isProd
           ? 'wss://livkit.onrender.com'
-          : 'ws://livkit.onrender.com/';
+          : 'ws://127.0.0.1:8000';
 
       final uri = Uri.parse(
         '$base/ws/chat/$conversationId/?token=$token',
