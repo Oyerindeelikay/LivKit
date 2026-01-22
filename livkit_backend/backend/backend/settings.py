@@ -223,7 +223,7 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [{
-                "address": os.environ["rediss://default:ASoQAAIncDI0NmM4MjU3MDliZTA0ZjNkYjY4ODE3NWVlOWQ3OGU1MXAyMTA3Njg@gentle-yeti-10768.upstash.io:6379"],
+                "address": os.environ["livkit-radis"],
                 "ssl_cert_reqs": None,
             }],
         },
