@@ -11,7 +11,7 @@ class Session {
 }
 
 class AuthService {
-  static const String _baseUrl = "http://127.0.0.1:8000/api";
+  static const String _baseUrl = "https://livkit.onrender.com/api";
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   /// -----------------------------
