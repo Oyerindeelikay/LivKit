@@ -18,106 +18,70 @@ from django.utils.decorators import method_decorator
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 class StripeCreateCheckoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAuthenticatedAndNotBanned]
 
     def post(self, request):
         user = request.user
 
-        # Ensure Stripe customer exists
-        if not user.stripe_customer_id:
-            customer = stripe.Customer.create(
-                email=user.email,
-                metadata={"user_id": user.id},
-            )
-            user.stripe_customer_id = customer.id
-            user.save(update_fields=["stripe_customer_id"])
+        # already paid → don't allow repeat payment
+        entitlement, _ = Entitlement.objects.get_or_create(user=user)
+        if entitlement.is_active:
+            return Response({"detail": "You’ve already unlocked premium content!"}, status=200)
 
-        try:
-            session = stripe.checkout.Session.create(
-                mode="payment",
-                customer=user.stripe_customer_id,
-                payment_method_types=["card"],
-                success_url=settings.FRONTEND_SUCCESS_URL,
-                cancel_url=settings.FRONTEND_CANCEL_URL,
-                line_items=[
-                    {
-                        "price": settings.STRIPE_PRICE_ID,
-                        "quantity": 1,
-                    }
-                ],
-                metadata={
-                    "user_id": str(user.id),
-                    "price_id": settings.STRIPE_PRICE_ID,
-                },
-            )
-        except stripe.error.StripeError:
-            return Response(
-                {"detail": "Unable to create checkout session"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            success_url=settings.FRONTEND_SUCCESS_URL,
+            cancel_url=settings.FRONTEND_CANCEL_URL,
+            customer_email=user.email,
+            line_items=[
+                {
+                    "price": settings.STRIPE_PRICE_ID,
+                    "quantity": 1,
+                }
+            ],
+            metadata={"user_id": user.id}
+        )
 
-        return Response({"checkout_url": session.url}, status=200)
-
+        return Response({"checkout_url": session.url})
 
 
 # ---------- STRIPE WEBHOOK ---------- #
 
 
 
-
 @csrf_exempt
 def stripe_webhook(request):
+    print(">>>>>>> WEBHOOK HIT")
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+    endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload,
-            sig_header,
-            settings.STRIPE_WEBHOOK_SECRET,
-        )
-    except (ValueError, stripe.error.SignatureVerificationError):
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+    except Exception as e:
         return HttpResponse(status=400)
+    print(">>>>>>> WEBHOOK HIT")
+    event_type = event["type"]
 
-    # Idempotency guard
-    if StripeEvent.objects.filter(event_id=event.id).exists():
-        return HttpResponse(status=200)
-
-    if event["type"] == "checkout.session.completed":
+    if event_type == "checkout.session.completed":
         session = event["data"]["object"]
+        user_id = session["metadata"]["user_id"]
+        transaction_id = session["payment_intent"]
 
-        # Defensive validation
-        if session["payment_status"] != "paid":
-            return HttpResponse(status=200)
-
-        if session["metadata"].get("price_id") != settings.STRIPE_PRICE_ID:
-            return HttpResponse(status=400)
-
-        user_id = session["metadata"].get("user_id")
-        payment_intent = session.get("payment_intent")
-
+        from django.contrib.auth import get_user_model
         User = get_user_model()
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return HttpResponse(status=400)
+        user = User.objects.get(id=user_id)
 
-        with transaction.atomic():
-            StripeEvent.objects.create(event_id=event.id)
+        entitlement, _ = Entitlement.objects.get_or_create(user=user)
+        entitlement.activate("stripe", transaction_id)
 
-            entitlement, _ = Entitlement.objects.get_or_create(user=user)
-            entitlement.activate(
-                provider="stripe",
-                reference=payment_intent,
-            )
-
-            PaymentLog.objects.create(
-                user=user,
-                provider="stripe",
-                event=event["type"],
-                reference=payment_intent,
-                payload=session,
-            )
+        PaymentLog.objects.create(
+            user=user,
+            provider="stripe",
+            event="checkout.session.completed",
+            reference=transaction_id,
+            payload=session
+        )
 
     return HttpResponse(status=200)
 
