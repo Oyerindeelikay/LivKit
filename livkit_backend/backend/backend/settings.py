@@ -31,7 +31,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-q$mvcx_r7)3vgpmiliudisugniy-@8cogbj-mfz-%6l(p4n+ef'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = [
     "livkit.onrender.com",
@@ -261,16 +261,16 @@ EARNINGS_CENTS_PER_VIEWER_MINUTE = 5  # $0.05 per viewer per minute
 
 
 STRIPE_SECRET_KEY = "sk_test_51SC4vzGnuFwSnU1H961gsLiu9ekLFo1yO9SPoMlZ3wg7EsSSvZYZZHJAIwDPpUfMSdp7EiwAg1j81aCu6ffxrDcw006EwsNEyw"
-STRIPE_WEBHOOK_SECRET = "whsec_9bed3831be23cca930d31077c745f134091e6df6369018f02d250dbb07754164"
+STRIPE_WEBHOOK_SECRET = "whsec_bIFBSqY7pspoelfvNj9RrnXSmkMeUAFx"
 STRIPE_PRICE_ID = "price_1SjmDYGnuFwSnU1HgrRycxuS"  
 
 
 # =======================
 # LIVESTREAM MINUTES PAYMENT
 # =======================
-STRIPE_MINUTES_WEBHOOK_SECRET = "whsec_9bed3831be23cca930d31077c745f134091e6df6369018f02d250dbb07754164"
+STRIPE_MINUTES_WEBHOOK_SECRET = "whsec_bIFBSqY7pspoelfvNj9RrnXSmkMeUAFx"
 
-STRIPE_MINUTES_PRICE_ID = "price_1SrLT3GnuFwSnU1Hff0NZFHp"
+STRIPE_MINUTES_PRICE_ID = "price_1SrLT3GnuFwSnU1Hff0NZFHp" 
 
 # How many seconds per purchase
 SECONDS_PER_MINUTE_PACKAGE = 18000  # 300 minutes = 18,000 seconds
