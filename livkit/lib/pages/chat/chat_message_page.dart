@@ -135,7 +135,7 @@ class _ChatPageState extends State<ChatPage> {
 
     final res = await http.get(
       Uri.parse(
-        "http://127.0.0.1:8000/api/chat/conversations/${widget.conversationId}/messages/",
+        "https://livkit.onrender.com/api/chat/conversations/${widget.conversationId}/messages/",
       ),
       headers: {"Authorization": "Bearer $token"},
     );
