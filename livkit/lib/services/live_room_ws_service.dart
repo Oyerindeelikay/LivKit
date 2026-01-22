@@ -35,7 +35,7 @@ class LiveRoomWsService {
     if (_connected) return;
 
     final uri = Uri.parse(
-      "ws://127.0.0.1:8000/ws/streams/$streamId/?token=$accessToken",
+      "wss://livkit.onrender.com/ws/streams/$streamId/?token=$accessToken",
     );
 
     _channel = WebSocketChannel.connect(uri);
