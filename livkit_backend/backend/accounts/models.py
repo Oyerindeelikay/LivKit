@@ -20,6 +20,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True
     )
 
+    stripe_customer_id = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        unique=True,
+    )
+
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='USER')
 
