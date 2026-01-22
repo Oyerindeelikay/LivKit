@@ -5,7 +5,7 @@ from .auth import jwt_required
 import requests
 from django.conf import settings
 
-API_BASE = "http://127.0.0.1:8000/api/auth"
+API_BASE = "https://livkit.onrender.com/api/auth"
 
 
 
@@ -17,7 +17,7 @@ def sign_in(request):
         }
 
         r = requests.post(
-            "http://127.0.0.1:8000/api/auth/login/",
+            "https://livkit.onrender.com/api/auth/login/",
             json=payload
         )
 
