@@ -17,33 +17,47 @@ from django.utils.decorators import method_decorator
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
-
 class StripeCreateCheckoutView(APIView):
-    permission_classes = [IsAuthenticated, IsAuthenticatedAndNotBanned]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
 
-        # already paid → don't allow repeat payment
-        entitlement, _ = Entitlement.objects.get_or_create(user=user)
-        if entitlement.is_active:
-            return Response({"detail": "You’ve already unlocked premium content!"}, status=200)
+        # Ensure Stripe customer exists
+        if not user.stripe_customer_id:
+            customer = stripe.Customer.create(
+                email=user.email,
+                metadata={"user_id": user.id},
+            )
+            user.stripe_customer_id = customer.id
+            user.save(update_fields=["stripe_customer_id"])
 
-        session = stripe.checkout.Session.create(
-            mode="payment",
-            success_url=settings.FRONTEND_SUCCESS_URL,
-            cancel_url=settings.FRONTEND_CANCEL_URL,
-            customer_email=user.email,
-            line_items=[
-                {
-                    "price": settings.STRIPE_PRICE_ID,
-                    "quantity": 1,
-                }
-            ],
-            metadata={"user_id": user.id}
-        )
+        try:
+            session = stripe.checkout.Session.create(
+                mode="payment",
+                customer=user.stripe_customer_id,
+                payment_method_types=["card"],
+                success_url=settings.FRONTEND_SUCCESS_URL,
+                cancel_url=settings.FRONTEND_CANCEL_URL,
+                line_items=[
+                    {
+                        "price": settings.STRIPE_PRICE_ID,
+                        "quantity": 1,
+                    }
+                ],
+                metadata={
+                    "user_id": str(user.id),
+                    "price_id": settings.STRIPE_PRICE_ID,
+                },
+            )
+        except stripe.error.StripeError:
+            return Response(
+                {"detail": "Unable to create checkout session"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        return Response({"checkout_url": session.url})
+        return Response({"checkout_url": session.url}, status=200)
+
 
 
 # ---------- STRIPE WEBHOOK ---------- #
