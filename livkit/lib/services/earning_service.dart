@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class EarningService {
-  static const _baseUrl = "http://127.0.0.1:8000/api";
+  static const _baseUrl = "https://livkit.onrender.com/api";
 
   Future<Map<String, dynamic>> getStreamEarnings({
     required String token,
