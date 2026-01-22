@@ -50,39 +50,60 @@ class StripeCreateCheckoutView(APIView):
 
 
 
+
 @csrf_exempt
 def stripe_webhook(request):
-    print(">>>>>>> WEBHOOK HIT")
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
-    endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-    except Exception as e:
-        return HttpResponse(status=400)
-    print(">>>>>>> WEBHOOK HIT")
-    event_type = event["type"]
-
-    if event_type == "checkout.session.completed":
-        session = event["data"]["object"]
-        user_id = session["metadata"]["user_id"]
-        transaction_id = session["payment_intent"]
-
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
-        user = User.objects.get(id=user_id)
-
-        entitlement, _ = Entitlement.objects.get_or_create(user=user)
-        entitlement.activate("stripe", transaction_id)
-
-        PaymentLog.objects.create(
-            user=user,
-            provider="stripe",
-            event="checkout.session.completed",
-            reference=transaction_id,
-            payload=session
+        event = stripe.Webhook.construct_event(
+            payload,
+            sig_header,
+            settings.STRIPE_WEBHOOK_SECRET,
         )
+    except (ValueError, stripe.error.SignatureVerificationError):
+        return HttpResponse(status=400)
+
+    # Idempotency guard
+    if StripeEvent.objects.filter(event_id=event.id).exists():
+        return HttpResponse(status=200)
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+
+        # Defensive validation
+        if session["payment_status"] != "paid":
+            return HttpResponse(status=200)
+
+        if session["metadata"].get("price_id") != settings.STRIPE_PRICE_ID:
+            return HttpResponse(status=400)
+
+        user_id = session["metadata"].get("user_id")
+        payment_intent = session.get("payment_intent")
+
+        User = get_user_model()
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return HttpResponse(status=400)
+
+        with transaction.atomic():
+            StripeEvent.objects.create(event_id=event.id)
+
+            entitlement, _ = Entitlement.objects.get_or_create(user=user)
+            entitlement.activate(
+                provider="stripe",
+                reference=payment_intent,
+            )
+
+            PaymentLog.objects.create(
+                user=user,
+                provider="stripe",
+                event=event["type"],
+                reference=payment_intent,
+                payload=session,
+            )
 
     return HttpResponse(status=200)
 
