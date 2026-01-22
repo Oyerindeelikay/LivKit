@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'auth_service.dart';
 
 class MinutesService {
-  static const String _baseUrl = "http://127.0.0.1:8000/api";
+  static const String _baseUrl = "https://livkit.onrender.com/api";
   final AuthService _auth = AuthService();
 
   /// Fetch remaining seconds balance
