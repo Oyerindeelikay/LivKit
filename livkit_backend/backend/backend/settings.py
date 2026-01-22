@@ -172,9 +172,6 @@ AUTH_USER_MODEL = 'accounts.User'
 
 
 
-STRIPE_SECRET_KEY = "sk_test_51SC4vzGnuFwSnU1H961gsLiu9ekLFo1yO9SPoMlZ3wg7EsSSvZYZZHJAIwDPpUfMSdp7EiwAg1j81aCu6ffxrDcw006EwsNEyw"
-STRIPE_WEBHOOK_SECRET = "whsec_9bed3831be23cca930d31077c745f134091e6df6369018f02d250dbb07754164"
-STRIPE_PRICE_ID = "price_1SjmDYGnuFwSnU1HgrRycxuS"  
 
 FRONTEND_SUCCESS_URL = "https://livkit.onrender.com/dashboard"
 FRONTEND_CANCEL_URL = "https://livkit.onrender.com/payment-cancel"
@@ -268,7 +265,7 @@ STRIPE_PRICE_ID = "price_1SjmDYGnuFwSnU1HgrRycxuS"
 # =======================
 # LIVESTREAM MINUTES PAYMENT
 # =======================
-STRIPE_MINUTES_WEBHOOK_SECRET = "whsec_bIFBSqY7pspoelfvNj9RrnXSmkMeUAFx"
+STRIPE_MINUTES_WEBHOOK_SECRET = "whsec_q4DVWpdJKE0KcArT3RxD7LvtcMWkVvSW"
 
 STRIPE_MINUTES_PRICE_ID = "price_1SrLT3GnuFwSnU1Hff0NZFHp" 
 
