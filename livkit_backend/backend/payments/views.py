@@ -55,39 +55,40 @@ class StripeCreateCheckoutView(APIView):
 
 @csrf_exempt
 def stripe_webhook(request):
-    print(">>>>>>> WEBHOOK HIT")
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
-    endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
 
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-    except Exception as e:
+        event = stripe.Webhook.construct_event(
+            payload,
+            sig_header,
+            settings.STRIPE_WEBHOOK_SECRET
+        )
+    except Exception:
         return HttpResponse(status=400)
-    print(">>>>>>> WEBHOOK HIT")
-    event_type = event["type"]
 
-    if event_type == "checkout.session.completed":
+    if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        user_id = session["metadata"]["user_id"]
-        transaction_id = session["payment_intent"]
+        user_id = session["metadata"].get("user_id")
+        transaction_id = session.get("payment_intent")
 
-        from django.contrib.auth import get_user_model
+        if not user_id:
+            return HttpResponse(status=200)
+
         User = get_user_model()
-        user = User.objects.get(id=user_id)
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return HttpResponse(status=200)
 
         entitlement, _ = Entitlement.objects.get_or_create(user=user)
         entitlement.activate("stripe", transaction_id)
 
-        PaymentLog.objects.create(
-            user=user,
-            provider="stripe",
-            event="checkout.session.completed",
-            reference=transaction_id,
-            payload=session
-        )
-
     return HttpResponse(status=200)
+
+
+
 
 # ---------- GOOGLE PLAY VERIFY ---------- #
 
