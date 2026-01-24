@@ -84,7 +84,7 @@ class UserProfileNestedSerializer(serializers.ModelSerializer):
 
 # 🔹 ADJUST ONLY THIS SERIALIZER
 class MeSerializer(serializers.ModelSerializer):
-    is_premium = serializers.BooleanField(source='has_lifetime_access')
+    is_premium = serializers.SerializerMethodField()
     profile = UserProfileNestedSerializer(read_only=True)
 
     class Meta:
@@ -99,6 +99,12 @@ class MeSerializer(serializers.ModelSerializer):
             'date_joined',
             'profile',
         )
+
+    def get_is_premium(self, obj):
+        return hasattr(obj, "entitlement") and obj.entitlement.is_active
+
+    def get_is_premium(self, obj):
+        return hasattr(obj, "entitlement") and obj.entitlement.is_active
 
 
 class UserSerializer(serializers.ModelSerializer):
