@@ -52,43 +52,46 @@ class StripeCreateCheckoutView(APIView):
 # ---------- STRIPE WEBHOOK ---------- #
 
 
-
 @csrf_exempt
 def stripe_webhook(request):
     print(">>>>>>> WEBHOOK HIT")
-    payload = request.body
-    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
 
     try:
+        payload = request.body
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+
         event = stripe.Webhook.construct_event(
             payload,
             sig_header,
             settings.STRIPE_WEBHOOK_SECRET
         )
-    except Exception as e:
-        print("❌ WEBHOOK ERROR:", str(e))
-        return HttpResponse(status=400)
-    print(">>>>>>> WEBHOOK HIT")
 
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        user_id = session["metadata"].get("user_id")
-        transaction_id = session.get("payment_intent")
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            print("SESSION DATA:", session)
 
-        if not user_id:
-            return HttpResponse(status=200)
+            user_id = session.get("metadata", {}).get("user_id")
+            transaction_id = session.get("payment_intent")
 
-        User = get_user_model()
+            print("USER ID:", user_id)
+            print("TX ID:", transaction_id)
 
-        try:
+            if not user_id or not transaction_id:
+                print("⚠️ Missing user_id or transaction_id")
+                return HttpResponse(status=200)
+
+            User = get_user_model()
             user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return HttpResponse(status=200)
 
-        entitlement, _ = Entitlement.objects.get_or_create(user=user)
-        entitlement.activate("stripe", transaction_id)
+            entitlement, _ = Entitlement.objects.get_or_create(user=user)
+            entitlement.activate("stripe", transaction_id)
 
-    return HttpResponse(status=200)
+        return HttpResponse(status=200)
+
+    except Exception as e:
+        print("❌ WEBHOOK CRASH:", str(e))
+        return HttpResponse(status=500)
+
 
 
 
