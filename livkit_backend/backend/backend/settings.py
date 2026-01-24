@@ -257,9 +257,9 @@ EARNINGS_CENTS_PER_VIEWER_MINUTE = 5  # $0.05 per viewer per minute
 
 
 
-STRIPE_SECRET_KEY = "sk_test_51SC4vzGnuFwSnU1H961gsLiu9ekLFo1yO9SPoMlZ3wg7EsSSvZYZZHJAIwDPpUfMSdp7EiwAg1j81aCu6ffxrDcw006EwsNEyw"
-STRIPE_WEBHOOK_SECRET = "whsec_bIFBSqY7pspoelfvNj9RrnXSmkMeUAFx"
-STRIPE_PRICE_ID = "price_1SjmDYGnuFwSnU1HgrRycxuS"  
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
 
 
 # =======================
