@@ -24,12 +24,20 @@ class Entitlement(models.Model):
     activated_at = models.DateTimeField(null=True, blank=True)
 
     def activate(self, source, transaction_id):
-        if not self.is_active:  # idempotent
-            self.is_active = True
-            self.source = source
-            self.transaction_id = transaction_id
-            self.activated_at = timezone.now()
-            self.save()
+        if self.transaction_id == transaction_id:
+            return
+    
+        self.is_active = True
+        self.source = source
+        self.transaction_id = transaction_id
+        self.activated_at = timezone.now()
+        self.save()
+    
+        user = self.user
+        user.is_premium = True
+        user.has_lifetime_access = True
+        user.save()
+
 
     def __str__(self):
         return f"{self.user.email} → {self.is_active}"
