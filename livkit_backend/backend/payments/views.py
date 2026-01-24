@@ -27,7 +27,7 @@ class StripeCreateCheckoutView(APIView):
         entitlement, _ = Entitlement.objects.get_or_create(user=user)
         if entitlement.is_active:
             return Response({
-                "already_paid": True
+                "already_paid": True,
                 "message": "You’ve already unlocked premium content!"
             })
 
