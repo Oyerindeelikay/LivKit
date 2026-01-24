@@ -55,6 +55,7 @@ class StripeCreateCheckoutView(APIView):
 
 @csrf_exempt
 def stripe_webhook(request):
+    print(">>>>>>> WEBHOOK HIT")
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
 
@@ -66,6 +67,7 @@ def stripe_webhook(request):
         )
     except Exception:
         return HttpResponse(status=400)
+    print(">>>>>>> WEBHOOK HIT")
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
