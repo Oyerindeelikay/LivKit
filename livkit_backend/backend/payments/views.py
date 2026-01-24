@@ -65,7 +65,8 @@ def stripe_webhook(request):
             sig_header,
             settings.STRIPE_WEBHOOK_SECRET
         )
-    except Exception:
+    except Exception as e:
+        print("❌ WEBHOOK ERROR:", str(e))
         return HttpResponse(status=400)
     print(">>>>>>> WEBHOOK HIT")
 
