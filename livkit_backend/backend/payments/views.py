@@ -71,7 +71,7 @@ def stripe_webhook(request):
             print("SESSION DATA:", session)
 
             user_id = session.get("metadata", {}).get("user_id")
-            transaction_id = session.get("payment_intent")
+            transaction_id = session["id"]
 
             print("USER ID:", user_id)
             print("TX ID:", transaction_id)
