@@ -265,9 +265,9 @@ STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID")
 # =======================
 # LIVESTREAM MINUTES PAYMENT
 # =======================
-STRIPE_MINUTES_WEBHOOK_SECRET = "whsec_q4DVWpdJKE0KcArT3RxD7LvtcMWkVvSW"
+STRIPE_MINUTES_WEBHOOK_SECRET = os.environ.get("STRIPE_MINUTES_WEBHOOK_SECRET")
 
-STRIPE_MINUTES_PRICE_ID = "price_1SrLT3GnuFwSnU1Hff0NZFHp" 
+STRIPE_MINUTES_PRICE_ID =  os.environ.get("STRIPE_MINUTES_PRICE_ID") 
 
 # How many seconds per purchase
 SECONDS_PER_MINUTE_PACKAGE = 18000  # 300 minutes = 18,000 seconds
