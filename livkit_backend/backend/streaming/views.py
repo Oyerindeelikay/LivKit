@@ -19,6 +19,8 @@ from .models import StreamEarning
 from .serializers import StreamEarningSerializer
 from datetime import timedelta
 
+from payments.models import MinuteWallet
+
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 User = get_user_model()
@@ -270,7 +272,7 @@ def stripe_minutes_webhook(request):
             return HttpResponse(status=200)
 
         wallet, _ = MinuteWallet.objects.get_or_create(user=user)
-        wallet.seconds_balance += 600  # example
+        wallet.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
         wallet.save()
 
         PaymentLog.objects.create(
@@ -286,5 +288,4 @@ def stripe_minutes_webhook(request):
     except Exception as e:
         print("❌ MINUTES WEBHOOK CRASH:", repr(e))
         return HttpResponse(status=500)
-
 
