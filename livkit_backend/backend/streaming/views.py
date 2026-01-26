@@ -8,7 +8,6 @@ from .models import LiveStream, ViewerSession, MinuteBalance, Gift
 from .serializers import LiveStreamSerializer, MinuteBalanceSerializer
 import uuid
 from django.views.decorators.csrf import csrf_exempt
-
 from rest_framework.views import APIView
 import stripe
 from django.conf import settings
@@ -239,7 +238,7 @@ def stripe_minutes_webhook(request):
         event = stripe.Webhook.construct_event(
             payload, sig_header, endpoint_secret
         )
-    except Exception:
+    except Exception as e:
         return HttpResponse(status=400)
 
     if event["type"] != "checkout.session.completed":
@@ -252,9 +251,9 @@ def stripe_minutes_webhook(request):
         return HttpResponse(status=200)
 
     user_id = metadata.get("user_id")
-    transaction_id = session.get("payment_intent")
+    transaction_id = session["id"]  # ✅ ALWAYS EXISTS
 
-    if not user_id or not transaction_id:
+    if not user_id:
         return HttpResponse(status=200)
 
     if PaymentLog.objects.filter(reference=transaction_id).exists():
@@ -274,7 +273,8 @@ def stripe_minutes_webhook(request):
         provider="stripe",
         event="checkout.session.completed",
         reference=transaction_id,
-        payload=session.to_dict()
+        payload=session
     )
 
     return HttpResponse(status=200)
+
