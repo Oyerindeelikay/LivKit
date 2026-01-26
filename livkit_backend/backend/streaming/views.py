@@ -227,7 +227,6 @@ class StripeMinutesCheckoutView(APIView):
 
         return Response({"checkout_url": session.url})
 
-
 @csrf_exempt
 def stripe_minutes_webhook(request):
     payload = request.body
@@ -277,4 +276,3 @@ def stripe_minutes_webhook(request):
     )
 
     return HttpResponse(status=200)
-
