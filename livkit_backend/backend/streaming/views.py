@@ -19,7 +19,6 @@ from .models import StreamEarning
 from .serializers import StreamEarningSerializer
 from datetime import timedelta
 
-from payments.models import MinuteWallet
 
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -231,61 +230,51 @@ class StripeMinutesCheckoutView(APIView):
 
 @csrf_exempt
 def stripe_minutes_webhook(request):
-    print(">>>>>>> MINUTES WEBHOOK HIT")
+    payload = request.body
+    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+    endpoint_secret = settings.STRIPE_MINUTES_WEBHOOK_SECRET
 
     try:
-        payload = request.body
-        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
-
         event = stripe.Webhook.construct_event(
-            payload,
-            sig_header,
-            settings.STRIPE_MINUTES_WEBHOOK_SECRET
+            payload, sig_header, endpoint_secret
         )
+    except Exception:
+        return HttpResponse(status=400)
 
-        if event["type"] != "checkout.session.completed":
-            return HttpResponse(status=200)
-
-        session = event["data"]["object"]
-        print("SESSION DATA:", session)
-
-        metadata = session.get("metadata", {})
-        if metadata.get("purchase_type") != "minutes":
-            return HttpResponse(status=200)
-
-        user_id = metadata.get("user_id")
-        transaction_id = session["id"]
-
-        print("USER ID:", user_id)
-        print("TX ID:", transaction_id)
-
-        if not user_id:
-            return HttpResponse(status=200)
-
-        User = get_user_model()
-        user = User.objects.get(id=user_id)
-
-        reference = f"minutes:{transaction_id}"
-
-        if PaymentLog.objects.filter(reference=reference).exists():
-            print("⚠️ Duplicate minutes transaction")
-            return HttpResponse(status=200)
-
-        wallet, _ = MinuteWallet.objects.get_or_create(user=user)
-        wallet.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
-        wallet.save()
-
-        PaymentLog.objects.create(
-            user=user,
-            provider="stripe",
-            event="minutes",
-            reference=reference,
-            payload=session
-        )
-
+    if event["type"] != "checkout.session.completed":
         return HttpResponse(status=200)
 
-    except Exception as e:
-        print("❌ MINUTES WEBHOOK CRASH:", repr(e))
-        return HttpResponse(status=500)
+    session = event["data"]["object"]
+    metadata = session.get("metadata", {})
+
+    if metadata.get("purchase_type") != "minutes":
+        return HttpResponse(status=200)
+
+    user_id = metadata.get("user_id")
+    transaction_id = session.get("payment_intent")
+
+    if not user_id or not transaction_id:
+        return HttpResponse(status=200)
+
+    if PaymentLog.objects.filter(reference=transaction_id).exists():
+        return HttpResponse(status=200)
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return HttpResponse(status=200)
+
+    balance, _ = MinuteBalance.objects.get_or_create(user=user)
+    balance.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
+    balance.save()
+
+    PaymentLog.objects.create(
+        user=user,
+        provider="stripe",
+        event="checkout.session.completed",
+        reference=transaction_id,
+        payload=session.to_dict()
+    )
+
+    return HttpResponse(status=200)
 
