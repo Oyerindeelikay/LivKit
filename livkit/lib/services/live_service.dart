@@ -129,14 +129,14 @@ class LiveService {
         "id": "vid001",
         "title": "Sample Video 1",
         "thumbnail": "https://via.placeholder.com/600x900",
-        "video_url": "https://example.com/video1.mp4",
+        "video_url": "https://m.youtube.com/shorts/Y0k1qDdtoUU",
         "is_live": false,
       },
       {
         "id": "vid002",
         "title": "Sample Video 2",
         "thumbnail": "https://via.placeholder.com/600x900",
-        "video_url": "https://example.com/video2.mp4",
+        "video_url": "https://m.youtube.com/shorts/J47KlLaBrVo",
         "is_live": false,
       },
     ];
