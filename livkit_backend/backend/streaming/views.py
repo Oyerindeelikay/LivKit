@@ -229,46 +229,52 @@ class StripeMinutesCheckoutView(APIView):
 
 
 
-
 @csrf_exempt
 def stripe_minutes_webhook(request):
     payload = request.body
     sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
     endpoint_secret = settings.STRIPE_MINUTES_WEBHOOK_SECRET
 
-
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, endpoint_secret
+        )
     except Exception:
         return HttpResponse(status=400)
 
-    event_type = event["type"]
+    if event["type"] != "checkout.session.completed":
+        return HttpResponse(status=200)
 
-    if event_type == "checkout.session.completed":
-        session = event["data"]["object"]
+    session = event["data"]["object"]
+    metadata = session.get("metadata", {})
 
-        # IMPORTANT: ensure this is a MINUTES purchase
-        if session["metadata"].get("purchase_type") != "minutes":
-            return HttpResponse(status=200)
+    if metadata.get("purchase_type") != "minutes":
+        return HttpResponse(status=200)
 
-        user_id = session["metadata"]["user_id"]
-        transaction_id = session["payment_intent"]
+    user_id = metadata.get("user_id")
+    transaction_id = session.get("payment_intent")
 
+    if not user_id or not transaction_id:
+        return HttpResponse(status=200)
+
+    if PaymentLog.objects.filter(reference=transaction_id).exists():
+        return HttpResponse(status=200)
+
+    try:
         user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return HttpResponse(status=200)
 
-        # Credit minutes safely
-        balance, _ = MinuteBalance.objects.get_or_create(user=user)
+    balance, _ = MinuteBalance.objects.get_or_create(user=user)
+    balance.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
+    balance.save()
 
-        balance.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
-        balance.save()
-
-        # Log it (reusing your existing model)
-        PaymentLog.objects.create(
-            user=user,
-            provider="stripe",
-            event="checkout.session.completed",
-            reference=transaction_id,
-            payload=session
-        )
+    PaymentLog.objects.create(
+        user=user,
+        provider="stripe",
+        event="checkout.session.completed",
+        reference=transaction_id,
+        payload=session.to_dict()
+    )
 
     return HttpResponse(status=200)
