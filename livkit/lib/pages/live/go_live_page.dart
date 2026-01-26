@@ -25,9 +25,16 @@ class _GoLivePageState extends State<GoLivePage> {
   Future<void> _handleGoLive() async {
     if (_loading) return;
 
-    final title = _titleController.text.trim().isEmpty
+    FocusScope.of(context).unfocus();
+
+    final String title = _titleController.text.trim().isEmpty
         ? "Untitled Live"
         : _titleController.text.trim();
+
+    if (title.length < 3) {
+      _showSnack("Live title is too short");
+      return;
+    }
 
     setState(() => _loading = true);
 
@@ -37,7 +44,6 @@ class _GoLivePageState extends State<GoLivePage> {
         scheduledAt: _scheduledTime?.toIso8601String(),
       );
 
-      // Use streamId as String (UUID)
       final String streamId = created["id"].toString();
 
       if (!_isScheduled) {
@@ -50,13 +56,13 @@ class _GoLivePageState extends State<GoLivePage> {
 
         if (token == null || channel == null || uid == null) {
           throw Exception(
-              "Backend did not return valid Agora credentials: $started");
+            "Backend did not return valid Agora credentials: $started",
+          );
         }
 
         if (!mounted) return;
 
-        Navigator.pushReplacement(
-          context,
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => LiveStreamingPage(
               streamId: streamId,
@@ -68,15 +74,16 @@ class _GoLivePageState extends State<GoLivePage> {
             ),
           ),
         );
-
       } else {
         _showSnack("Live scheduled successfully");
       }
     } catch (e) {
       debugPrint("GoLive error: $e");
-      _showSnack("Failed to start live stream: $e");
+      _showSnack("Failed to start live stream");
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -102,14 +109,21 @@ class _GoLivePageState extends State<GoLivePage> {
 
     if (time == null) return;
 
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+
+    if (selected.isBefore(DateTime.now().add(const Duration(minutes: 1)))) {
+      _showSnack("Scheduled time must be in the future");
+      return;
+    }
+
     setState(() {
-      _scheduledTime = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
+      _scheduledTime = selected;
     });
   }
 
@@ -117,12 +131,13 @@ class _GoLivePageState extends State<GoLivePage> {
   // SHARE LINK
   // ─────────────────────────────────────────────
   void _shareLink() {
-    final link = "https://yourapp.com/live"; // replace with real deep link later
-    Clipboard.setData(ClipboardData(text: link));
+    const link = "https://yourapp.com/live"; // replace with real deep link later
+    Clipboard.setData(const ClipboardData(text: link));
     _showSnack("Live link copied");
   }
 
   void _showSnack(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg)),
     );
@@ -133,6 +148,8 @@ class _GoLivePageState extends State<GoLivePage> {
     _titleController.dispose();
     super.dispose();
   }
+
+
 
 
 
