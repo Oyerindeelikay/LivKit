@@ -1,5 +1,7 @@
 // lib/services/agora_service.dart
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:flutter/foundation.dart';
+
 class AgoraService {
   RtcEngine? _engine;
   bool _initialized = false;
@@ -14,29 +16,40 @@ class AgoraService {
   }
 
   Future<void> initialize({required String appId}) async {
+    if (_initialized) return;
+
     _engine = createAgoraRtcEngine();
+
     await _engine!.initialize(
       RtcEngineContext(
         appId: appId,
-        channelProfile:
-            ChannelProfileType.channelProfileLiveBroadcasting,
+        channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
       ),
     );
+
+    _engine!.registerEventHandler(
+      RtcEngineEventHandler(
+        onError: (err, msg) {
+          debugPrint("Agora error: $err, $msg");
+        },
+        onJoinChannelSuccess: (connection, elapsed) {
+          debugPrint("Joined channel: ${connection.channelId}");
+        },
+        onConnectionStateChanged: (connection, state, reason) {
+          debugPrint(
+            "Connection state: $state, reason: $reason, channel: ${connection.channelId}",
+          );
+        },
+        onLeaveChannel: (connection, stats) {
+          debugPrint("Left channel: ${connection.channelId}");
+        },
+      ),
+    );
+
     await _engine!.enableVideo();
     _initialized = true;
   }
 
-  Future<void> leaveChannel() async {
-    if (!_initialized) return;
-    await _engine?.leaveChannel();
-  }
-
-  Future<void> destroy() async {
-    if (!_initialized) return;
-    await _engine?.release();
-    _engine = null;
-    _initialized = false;
-  }
 
   Future<void> joinChannel({
     required String token,
@@ -56,5 +69,17 @@ class AgoraService {
       uid: uid,
       options: const ChannelMediaOptions(),
     );
+  }
+
+  Future<void> leaveChannel() async {
+    if (!_initialized) return;
+    await _engine!.leaveChannel();
+  }
+
+  Future<void> destroy() async {
+    if (!_initialized) return;
+    await _engine!.release();
+    _engine = null;
+    _initialized = false;
   }
 }
