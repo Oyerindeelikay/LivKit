@@ -34,36 +34,55 @@ streams = LiveStream.objects.filter(status="live") | \
                status="ended",
                ended_at__gte=now() - timedelta(minutes=10)
            )
-           
+         
+# -------------------------------
+# START STREAM (HOST)
+# -------------------------------
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def start_stream(request, stream_id):
-    stream = get_object_or_404(LiveStream, id=stream_id, host=request.user)
+    stream = get_object_or_404(
+        LiveStream,
+        id=stream_id,
+        host=request.user,
+    )
+
+    print(
+        f"[START_STREAM] host={request.user.id}, "
+        f"stream={stream.id}, status_before={stream.status}"
+    )
 
     if stream.status == "live":
+        print("[START_STREAM] ❌ Stream already live")
         return Response({"error": "Stream is already live"}, status=400)
 
+    # Mark stream live
     stream.status = "live"
     stream.started_at = now()
-    stream.save()
+    stream.ended_at = None
+    stream.save(update_fields=["status", "started_at", "ended_at"])
 
-    # Generate Agora token for HOST (broadcaster)
-    host_uid = request.user.id  # use Django user ID as Agora UID
+    print(
+        f"[START_STREAM] ✅ Stream marked live | "
+        f"channel={stream.agora_channel}"
+    )
 
+    # IMPORTANT: UID = 0 (Agora auto-assign)
     agora_token = generate_agora_token(
         channel_name=stream.agora_channel,
-        uid=host_uid,
+        uid=0,
         is_host=True,
     )
+
+    print("[START_STREAM] 🎟️ Agora host token generated")
 
     return Response({
         "stream_id": str(stream.id),
         "agora_channel": stream.agora_channel,
         "agora_token": agora_token,
-        "uid": host_uid,
+        "uid": 0,
         "role": "host",
     })
-
 
 
 
@@ -84,45 +103,64 @@ def create_stream(request):
     return Response(LiveStreamSerializer(stream).data, status=201)
 
 
-
+# -------------------------------
+# JOIN STREAM (VIEWER)
+# -------------------------------
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def join_stream(request, stream_id):
-
     stream = get_object_or_404(LiveStream, id=stream_id)
+
+    print(
+        f"[JOIN_STREAM] user={request.user.id}, "
+        f"stream={stream.id}, status={stream.status}"
+    )
+
     if stream.status != "live":
+        print("[JOIN_STREAM] ❌ Stream not live")
         return Response(
             {"error": "This stream is not currently live"},
             status=400
         )
 
-
+    # Ensure viewer has minutes
     balance, _ = MinuteBalance.objects.get_or_create(user=request.user)
 
+    print(
+        f"[JOIN_STREAM] viewer={request.user.id}, "
+        f"seconds_balance={balance.seconds_balance}"
+    )
+
     if balance.seconds_balance <= 0:
+        print("[JOIN_STREAM] ❌ Insufficient minutes")
         return Response({"error": "Insufficient minutes"}, status=403)
 
+    # Track viewer session
     ViewerSession.objects.update_or_create(
         user=request.user,
         stream=stream,
         defaults={"is_active": True}
     )
 
-    viewer_uid = request.user.id
+    print("[JOIN_STREAM] 👀 Viewer session active")
 
+    # UID = 0 (Agora auto-assign)
     agora_token = generate_agora_token(
         channel_name=stream.agora_channel,
-        uid=viewer_uid,
+        uid=0,
         is_host=False,
     )
+
+    print("[JOIN_STREAM] 🎟️ Agora viewer token generated")
 
     return Response({
         "stream_id": str(stream.id),
         "agora_channel": stream.agora_channel,
         "agora_token": agora_token,
-        "uid": viewer_uid,
+        "uid": 0,
         "role": "audience",
     })
+
 
 
 
@@ -139,50 +177,79 @@ def end_stream(request, stream_id):
 
     return Response({"message": "Stream ended"})
 
-
-# --- LIST ACTIVE STREAMS ---
+# -------------------------------
+# LIST ACTIVE / RECENT STREAMS
+# -------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def list_streams(request):
-    recent_cutoff = now() - timedelta(minutes=30)  # last 30 minutes
+    recent_cutoff = now() - timedelta(minutes=30)
+
     streams = LiveStream.objects.filter(
         status__in=["live", "ended"],
         ended_at__gte=recent_cutoff
+    ).order_by("-started_at")
+
+    print(
+        f"[LIST_STREAMS] user={request.user.id}, "
+        f"count={streams.count()}"
     )
-    return Response(LiveStreamSerializer(streams, many=True).data)
 
+    return Response(
+        LiveStreamSerializer(streams, many=True).data
+    )
 
-# --- GET REMAINING MINUTES ---
+# -------------------------------
+# GET REMAINING MINUTES
+# -------------------------------
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def minutes_balance(request):
     balance, _ = MinuteBalance.objects.get_or_create(user=request.user)
-    return Response(MinuteBalanceSerializer(balance).data)
 
+    print(
+        f"[MINUTES_BALANCE] user={request.user.id}, "
+        f"seconds={balance.seconds_balance}"
+    )
+
+    return Response(
+        MinuteBalanceSerializer(balance).data
+    )
+
+
+# -------------------------------
+# GET VIEWER TOKEN (REJOIN)
+# -------------------------------
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def get_viewer_token(request, stream_id):
     stream = get_object_or_404(LiveStream, id=stream_id)
 
-    # Ensure stream is live
-    if stream.status != "live":
-        return Response({"error": "Stream is not live"}, status=400)
+    print(
+        f"[GET_VIEWER_TOKEN] user={request.user.id}, "
+        f"stream={stream.id}, status={stream.status}"
+    )
 
-    viewer_uid = request.user.id
+    if stream.status != "live":
+        print("[GET_VIEWER_TOKEN] ❌ Stream not live")
+        return Response({"error": "Stream is not live"}, status=400)
 
     agora_token = generate_agora_token(
         channel_name=stream.agora_channel,
-        uid=viewer_uid,
+        uid=0,
         is_host=False,
     )
+
+    print("[GET_VIEWER_TOKEN] 🎟️ Viewer token generated")
 
     return Response({
         "stream_id": str(stream.id),
         "agora_channel": stream.agora_channel,
         "agora_token": agora_token,
-        "uid": viewer_uid,
+        "uid": 0,
         "role": "audience",
     })
+
 
 
 
