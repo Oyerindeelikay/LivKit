@@ -7,6 +7,8 @@ from rest_framework import status
 from .models import LiveStream, ViewerSession, MinuteBalance, Gift
 from .serializers import LiveStreamSerializer, MinuteBalanceSerializer
 import uuid
+from django.http import HttpResponse
+
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.views import APIView
 import stripe
