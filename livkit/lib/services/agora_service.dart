@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart';
 class AgoraService {
   RtcEngine? _engine;
   bool _initialized = false;
+  bool _joined = false;
 
   bool get isInitialized => _initialized;
+  bool get isJoined => _joined;
 
   RtcEngine get engine {
     if (_engine == null || !_initialized) {
@@ -30,18 +32,20 @@ class AgoraService {
     _engine!.registerEventHandler(
       RtcEngineEventHandler(
         onError: (err, msg) {
-          debugPrint("Agora error: $err, $msg");
+          debugPrint("🚨 Agora error: code=$err, msg=$msg");
         },
         onJoinChannelSuccess: (connection, elapsed) {
-          debugPrint("Joined channel: ${connection.channelId}");
+          _joined = true;
+          debugPrint("✅ Joined channel: ${connection.channelId}");
+        },
+        onLeaveChannel: (connection, stats) {
+          _joined = false;
+          debugPrint("👋 Left channel: ${connection.channelId}");
         },
         onConnectionStateChanged: (connection, state, reason) {
           debugPrint(
-            "Connection state: $state, reason: $reason, channel: ${connection.channelId}",
+            "🔌 State=$state reason=$reason channel=${connection.channelId}",
           );
-        },
-        onLeaveChannel: (connection, stats) {
-          debugPrint("Left channel: ${connection.channelId}");
         },
       ),
     );
@@ -50,13 +54,21 @@ class AgoraService {
     _initialized = true;
   }
 
-
   Future<void> joinChannel({
     required String token,
     required String channelName,
     required int uid,
     required bool isHost,
   }) async {
+    if (!_initialized) {
+      throw Exception("Agora not initialized");
+    }
+
+    if (_joined) {
+      debugPrint("⚠️ Already joined a channel — skipping join");
+      return;
+    }
+
     await engine.setClientRole(
       role: isHost
           ? ClientRoleType.clientRoleBroadcaster
@@ -66,20 +78,24 @@ class AgoraService {
     await engine.joinChannel(
       token: token,
       channelId: channelName,
-      uid: uid,
+      uid: uid, // should be 0
       options: const ChannelMediaOptions(),
     );
   }
 
   Future<void> leaveChannel() async {
-    if (!_initialized) return;
-    await _engine!.leaveChannel();
+    if (!_initialized || !_joined) return;
+    await engine.leaveChannel();
   }
 
   Future<void> destroy() async {
     if (!_initialized) return;
-    await _engine!.release();
+    if (_joined) {
+      await engine.leaveChannel();
+    }
+    await engine.release();
     _engine = null;
     _initialized = false;
+    _joined = false;
   }
 }
