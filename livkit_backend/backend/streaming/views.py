@@ -12,7 +12,8 @@ from rest_framework.views import APIView
 import stripe
 from django.conf import settings
 from .agora_utils import generate_agora_token
-
+import json
+import traceback
 from django.contrib.auth import get_user_model
 from payments.models import PaymentLog 
 from .models import StreamEarning
@@ -227,54 +228,73 @@ class StripeMinutesCheckoutView(APIView):
 
         return Response({"checkout_url": session.url})
 
+
+
 @csrf_exempt
 def stripe_minutes_webhook(request):
-    payload = request.body
-    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
-    endpoint_secret = settings.STRIPE_MINUTES_WEBHOOK_SECRET
-
     try:
+        print("\n\n==== STRIPE WEBHOOK HIT ====")
+
+        payload = request.body
+        print("RAW BODY:", payload)
+
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+        print("SIG HEADER:", sig_header)
+
+        endpoint_secret = settings.STRIPE_MINUTES_WEBHOOK_SECRET
+        print("ENDPOINT SECRET EXISTS:", bool(endpoint_secret))
+
         event = stripe.Webhook.construct_event(
             payload, sig_header, endpoint_secret
         )
-    except Exception as e:
-        print("Webhook signature error:", e)
-        return HttpResponse(status=400)
 
-    if event["type"] != "checkout.session.completed":
-        return HttpResponse(status=200)
+        print("EVENT TYPE:", event["type"])
 
-    session = event["data"]["object"]
-    metadata = session.get("metadata", {})
+        if event["type"] != "checkout.session.completed":
+            print("Ignoring event")
+            return HttpResponse(status=200)
 
-    if metadata.get("purchase_type") != "minutes":
-        return HttpResponse(status=200)
+        session = event["data"]["object"]
+        print("SESSION:", json.dumps(session, indent=2))
 
-    user_id = metadata.get("user_id")
-    session_id = session.get("id")  # ✅ correct reference
+        metadata = session.get("metadata", {})
+        print("METADATA:", metadata)
 
-    if not user_id or not session_id:
-        return HttpResponse(status=200)
+        user_id = metadata.get("user_id")
+        session_id = session.get("id")
 
-    # Idempotency check
-    if PaymentLog.objects.filter(reference=session_id).exists():
-        return HttpResponse(status=200)
+        print("USER ID:", user_id)
+        print("SESSION ID:", session_id)
 
-    try:
+        if PaymentLog.objects.filter(reference=session_id).exists():
+            print("Already processed")
+            return HttpResponse(status=200)
+
         user = User.objects.get(id=user_id)
-    except User.DoesNotExist:
+        print("USER FOUND:", user)
+
+        balance, _ = MinuteBalance.objects.get_or_create(user=user)
+        print("BALANCE BEFORE:", balance.seconds_balance)
+
+        balance.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
+        balance.save()
+
+        print("BALANCE AFTER:", balance.seconds_balance)
+
+        PaymentLog.objects.create(
+            user=user,
+            provider="stripe",
+            event="checkout.session.completed",
+            reference=session_id,
+            payload=session,
+        )
+
+        print("PAYMENT LOG CREATED")
+
         return HttpResponse(status=200)
 
-    balance, _ = MinuteBalance.objects.get_or_create(user=user)
-    balance.seconds_balance += settings.SECONDS_PER_MINUTE_PACKAGE
-    balance.save()
-
-    PaymentLog.objects.create(
-        user=user,
-        provider="stripe",
-        event="checkout.session.completed",
-        reference=session_id,
-        payload=session,   # ✅ FIXED
-    )
-
-    return HttpResponse(status=200)
+    except Exception as e:
+        print("\n\n🔥🔥🔥 WEBHOOK CRASHED 🔥🔥🔥")
+        print("ERROR:", str(e))
+        traceback.print_exc()
+        return HttpResponse(status=500)
