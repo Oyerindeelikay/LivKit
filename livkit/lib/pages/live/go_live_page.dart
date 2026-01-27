@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/live_service.dart';
 import '../live/live_streaming_page.dart';
+import 'package:flutter/foundation.dart';
+
 
 class GoLivePage extends StatefulWidget {
   const GoLivePage({super.key});
@@ -52,17 +54,21 @@ class _GoLivePageState extends State<GoLivePage> {
 
         final token = started["agora_token"];
         final channel = started["agora_channel"];
-        final uid = started["uid"];
 
-        if (token == null || channel == null || uid == null) {
+        debugPrint("🎬 [START_LIVE] streamId=$streamId");
+        debugPrint("🎟️ token=${token != null ? 'OK' : 'NULL'}");
+        debugPrint("📡 channel=$channel");
+
+        if (token == null || channel == null) {
           throw Exception(
             "Backend did not return valid Agora credentials: $started",
           );
         }
 
         if (!mounted) return;
+        debugPrint("🚀 Navigating to LiveStreamingPage");
 
-        Navigator.of(context).pushReplacement(
+        Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => LiveStreamingPage(
               streamId: streamId,
@@ -70,7 +76,9 @@ class _GoLivePageState extends State<GoLivePage> {
               isHost: true,
               agoraToken: token,
               channelName: channel,
-              uid: uid,
+              uid: started["uid"] ?? 0,
+
+
             ),
           ),
         );
@@ -78,6 +86,7 @@ class _GoLivePageState extends State<GoLivePage> {
         _showSnack("Live scheduled successfully");
       }
     } catch (e) {
+
       debugPrint("GoLive error: $e");
       _showSnack("Failed to start live stream");
     } finally {
