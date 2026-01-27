@@ -52,6 +52,8 @@ class _LiveStreamingPageState extends State<LiveStreamingPage>
 
   int _viewerCount = 0;
   bool _joining = true;
+  bool _cleanedUp = false;
+
 
   // Video controller for fallback video posts
   VideoPlayerController? _videoController;
@@ -111,7 +113,8 @@ class _LiveStreamingPageState extends State<LiveStreamingPage>
       Map<String, dynamic>? joinData;
       if (!widget.isHost) {
         joinData =
-            await _liveService.joinLiveStream(int.parse(widget.streamId));
+            await _liveService.joinLiveStream(widget.streamId);
+
       }
 
       final agoraToken = widget.isHost
@@ -123,10 +126,19 @@ class _LiveStreamingPageState extends State<LiveStreamingPage>
           : joinData?["agora_channel"];
 
       final uid = widget.isHost
-          ? widget.uid ?? 0
-          : joinData?["uid"] ?? 0;
+        ? (widget.uid ?? 0)
+        : (joinData?["uid"] ?? 0);
+
+      if (agoraToken == null || agoraToken.isEmpty) {
+        throw Exception("Agora token missing");
+      }
+
+      if (channelName == null || channelName.isEmpty) {
+        throw Exception("Agora channel missing");
+      }
 
       await _agora.initialize(appId: "YOUR_AGORA_APP_ID");
+      
 
       await _agora.joinChannel(
         token: agoraToken ?? "",
@@ -192,14 +204,34 @@ class _LiveStreamingPageState extends State<LiveStreamingPage>
     );
 
     if (widget.isLive) {
-      await _agora.leaveChannel();
-      await _agora.destroy();
-      _wsService.disconnect();
+      await _cleanup();
     } else {
       await _videoController?.pause();
       await _videoController?.dispose();
     }
   }
+
+  Future<void> _cleanup() async {
+    if (_cleanedUp) return;
+    _cleanedUp = true;
+
+    debugPrint("🧹 Cleaning up live resources");
+
+    try {
+      await _agora.leaveChannel();
+    } catch (e) {
+      debugPrint("Agora leave error: $e");
+    }
+
+    try {
+      await _agora.destroy();
+    } catch (e) {
+      debugPrint("Agora destroy error: $e");
+    }
+
+    _wsService.disconnect();
+  }
+
 
   @override
   void dispose() {
@@ -208,8 +240,7 @@ class _LiveStreamingPageState extends State<LiveStreamingPage>
     _videoController?.dispose();
 
     if (widget.isLive) {
-      _agora.destroy();
-      _wsService.disconnect();
+      _cleanup();
     } else {
       _videoController?.dispose();
     }
