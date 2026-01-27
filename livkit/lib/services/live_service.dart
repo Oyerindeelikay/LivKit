@@ -61,18 +61,25 @@ class LiveService {
   /// JOIN STREAM (VIEWER)
   /// Deducts minutes server-side
   /// -----------------------------
-  Future<Map<String, dynamic>> joinLiveStream(int streamId) async {
+  Future<Map<String, dynamic>> joinLiveStream(String streamId) async {
+    debugPrint("🎥 [JOIN_STREAM] streamId=$streamId");
+  
     final res = await http.post(
       Uri.parse("$_baseUrl/live/streams/$streamId/join/"),
       headers: await _headers(),
     );
-
+  
+    debugPrint(
+      "📡 [JOIN_STREAM_RESPONSE] status=${res.statusCode} body=${res.body}",
+    );
+  
     if (res.statusCode != 200) {
-      throw Exception("Unable to join livestream");
+      throw Exception("Unable to join livestream: ${res.body}");
     }
-
+  
     return jsonDecode(res.body);
   }
+
 
   /// -----------------------------
   /// END STREAM (HOST)
