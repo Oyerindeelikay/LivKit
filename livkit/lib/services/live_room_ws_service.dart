@@ -39,6 +39,8 @@ class LiveRoomWsService {
     );
 
     _channel = WebSocketChannel.connect(uri);
+    debugPrint("🔌 [WS_CONNECT] streamId=$streamId");
+
     _connected = true;
 
     this.onViewerCount = onViewerCount;
@@ -50,14 +52,15 @@ class LiveRoomWsService {
     _channel!.stream.listen(
       _handleEvent,
       onError: (error) {
-        debugPrint("LiveRoom WS error: $error");
-        disconnect();
+        debugPrint("🚨 [WS_ERROR] $error");
+        // DO NOT disconnect Agora here
       },
       onDone: () {
-        debugPrint("LiveRoom WS closed");
-        disconnect();
+        debugPrint("⚠️ [WS_CLOSED] Socket closed by server");
+        // Allow UI to decide what to do
       },
     );
+
   }
 
   /// 🧠 Central event router
@@ -111,8 +114,12 @@ class LiveRoomWsService {
   /// ❌ Disconnect safely
   void disconnect() {
     if (!_connected) return;
+  
+    debugPrint("❌ [WS_DISCONNECT] Closing socket manually");
+  
     _channel?.sink.close();
     _channel = null;
     _connected = false;
   }
+
 }
