@@ -1,4 +1,3 @@
-// lib/services/agora_service.dart
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/foundation.dart';
 
@@ -78,24 +77,37 @@ class AgoraService {
     await engine.joinChannel(
       token: token,
       channelId: channelName,
-      uid: uid, // should be 0
+      uid: uid,
       options: const ChannelMediaOptions(),
     );
   }
 
   Future<void> leaveChannel() async {
-    if (!_initialized || !_joined) return;
-    await engine.leaveChannel();
+    if (!_initialized) return;
+
+    // ALWAYS try to leave. Idempotent.
+    try {
+      await engine.leaveChannel();
+    } catch (e) {
+      debugPrint("⚠️ leaveChannel failed: $e");
+    } finally {
+      _joined = false;
+    }
   }
 
   Future<void> destroy() async {
     if (!_initialized) return;
-    if (_joined) {
-      await engine.leaveChannel();
+
+    // Don't call leaveChannel here.
+    // The UI already handles cleanup.
+    try {
+      await engine.release();
+    } catch (e) {
+      debugPrint("⚠️ destroy failed: $e");
+    } finally {
+      _engine = null;
+      _initialized = false;
+      _joined = false;
     }
-    await engine.release();
-    _engine = null;
-    _initialized = false;
-    _joined = false;
   }
 }
