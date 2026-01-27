@@ -72,8 +72,10 @@ class _MainNavigationState extends State<MainNavigation> {
       );
       return;
     }
+
     setState(() => _selectedIndex = index);
   }
+
 
   Widget _buildChatPage() {
     // Safe to use _userToken because _pages only builds after loading
