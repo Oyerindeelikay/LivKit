@@ -239,20 +239,10 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 
 
-AGORA_APP_ID = "9d64feede1574163bbffbf85bb10f8e6"
-AGORA_APP_CERTIFICATE = "f9367fb864d94ed3a0172b7a11c99fa0"
-
-# Token expiry (seconds) — 1 hour is reasonable for live streaming
-AGORA_TOKEN_TTL = 3600
-
 CELERY_BROKER_URL = "redis://red-d5ou21soud1c739gh0d0:6379"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 
-# =======================
-# STREAMING MONETIZATION
-# =======================
-EARNINGS_CENTS_PER_VIEWER_MINUTE = 5  # $0.05 per viewer per minute
 
 
 
@@ -269,12 +259,6 @@ STRIPE_MINUTES_WEBHOOK_SECRET = os.environ.get("STRIPE_MINUTES_WEBHOOK_SECRET")
 
 STRIPE_MINUTES_PRICE_ID =  os.environ.get("STRIPE_MINUTES_PRICE_ID") 
 
-# How many seconds per purchase
-SECONDS_PER_MINUTE_PACKAGE = 18000  # 300 minutes = 18,000 seconds
-
-
-STREAMER_RATE_PER_VIEWER_HOUR = 0.208
-STREAMER_RATE_PER_VIEWER_SECOND = 0.208 / 3600  # = 0.000057777...
 
 
 
