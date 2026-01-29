@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../pages/home/home_page.dart';
-import '../pages/live/live_streaming_page.dart';
-import '../pages/live/streamer_page.dart';
+import '../pages/live/viewer_page.dart';
 import '../pages/live/go_live_page.dart';
 import '../pages/chat/chat_page.dart';
 import '../pages/profile/self_profile_screen.dart';
@@ -10,9 +9,7 @@ import '../pages/settings/demo_page.dart';
 import 'bottom_nav.dart';
 
 import '../services/auth_service.dart';
-import '../services/chat_service.dart';
 import '../services/streaming_service.dart';
-
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -25,8 +22,6 @@ class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
   bool _isLoading = true;
   String? _userToken;
-  late final StreamingService _streamingService;
-
 
   @override
   void initState() {
@@ -36,14 +31,9 @@ class _MainNavigationState extends State<MainNavigation> {
 
   /// Fetch token and check paid access
   Future<void> _initializeUser() async {
-    _streamingService = StreamingService(
-      baseUrl: 'http://127.0.0.1:8000/api/streaming/',
-      getAuthToken: () async => _userToken,
-    );
     final auth = AuthService();
 
     try {
-      // Check paid access first
       final hasPaid = await auth.hasLifetimeAccess();
       if (!hasPaid && mounted) {
         Navigator.pushReplacement(
@@ -53,13 +43,14 @@ class _MainNavigationState extends State<MainNavigation> {
         return;
       }
 
-      // Fetch the token correctly
-      final token = await auth.getAccessToken() ?? "";
-      if (mounted) {
+      final token = await auth.getAccessToken();
+      if (mounted && token != null && token.isNotEmpty) {
         setState(() {
           _userToken = token;
           _isLoading = false;
         });
+      } else {
+        throw Exception("No auth token");
       }
     } catch (_) {
       if (mounted) {
@@ -71,33 +62,69 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
-
   void _onTabTap(int index) {
+    // 🎥 GO LIVE (special case)
     if (index == 2) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => GoLivePage(
-            roomId: 1, // replace with real LiveRoom.id
-            streamingService: _streamingService,
-            userToken: _userToken!,
+            accessToken: _userToken!,
           ),
         ),
       );
-
       return;
     }
 
     setState(() => _selectedIndex = index);
   }
 
-
-
   Widget _buildChatPage() {
-    // Safe to use _userToken because _pages only builds after loading
     return ChatPageList(
-      
       token: _userToken!,
+    );
+  }
+
+  /// Live Discovery / Viewer launcher
+  Widget _buildLivePage() {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: StreamingService(accessToken: _userToken!).fetchActiveStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData) {
+          return const Center(
+            child: Text(
+              "No live streams currently",
+              style: TextStyle(color: Colors.white),
+            ),
+          );
+        }
+
+        final stream = snapshot.data!;
+        // Tap to enter ViewerPage
+        return Center(
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ViewerPage(
+                    streamId: stream["id"],
+                    channelName: stream["channel_name"],
+                    agoraToken: stream["agora_token"],
+                    accessToken: _userToken!,
+                    title: stream["title"] ?? "Live Now",
+                  ),
+                ),
+              );
+            },
+            child: const Text("Watch Live Stream"),
+          ),
+        );
+      },
     );
   }
 
@@ -111,7 +138,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
     final List<Widget> _pages = [
       const HomePage(),
-      const SizedBox(), // Discover / placeholder (NOT live)
+      _buildLivePage(), // Viewer discovery
       const SizedBox(), // Go Live handled manually
       _buildChatPage(),
       const SelfProfileScreen(),
