@@ -1,353 +1,319 @@
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from .services import calculate_session_earnings
-from django.db import transaction
-
-from rest_framework.decorators import permission_classes
-from rest_framework.permissions import AllowAny
-from .hms import generate_hms_token
-from .serializers import ScheduleLiveSerializer
-
+import random
 from django.utils import timezone
-from .serializers import ViewerJoinSerializer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from agora_token_builder import RtcTokenBuilder
+
+from .models import LiveStream, LiveViewSession
+from .serializers import LiveStreamSerializer
+from .agora import generate_agora_token
+
+MIN_PAYABLE_MINUTES = 2
 
 
 
-from .services import calculate_session_earnings
-
-from .models import LiveSession, ViewerSessionEvent, LiveRoom
-from .hms import verify_hms_signature
-from accounts.models import User  # adjust if needed
+HEARTBEAT_INTERVAL = 30  # seconds
+HEARTBEAT_TIMEOUT = 60   # seconds
 
 
+AGORA_ROLE_PUBLISHER = 1
+AGORA_ROLE_SUBSCRIBER = 2
 
 
-class HMSWebhookView(APIView):
-
-    permission_classes = [AllowAny]  # HMS server, not users
-
-    @transaction.atomic
-    def handle_room_ended(self, session):
-        session.status = "ended"
-        session.actual_end = timezone.now()
-        session.save(update_fields=["status", "actual_end"])
-
-        # Force close all open viewer events
-        ViewerSessionEvent.objects.filter(
-            session=session,
-            left_at__isnull=True
-        ).update(left_at=session.actual_end)
-
-        # Now compute earnings
-        calculate_session_earnings(session)
-
-
+class CreateLiveStreamView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # 1. Verify HMS
-        if not verify_hms_signature(request):
-            return Response({"detail": "Invalid signature"}, status=403)
+        user = request.user
 
-        data = request.data
+        channel_name = f"live_{user.id}_{int(timezone.now().timestamp())}"
 
-
-
-        event = data.get("type")
-        room_id = data.get("data", {}).get("room_id")
-
-        # Handle room lifecycle FIRST
-        if event == "room.started":
-            session = (
-                LiveSession.objects
-                .filter(room__hms_room_id=room_id, status="scheduled")
-                .order_by("-created_at")
-                .first()
-            )
-            if session:
-                session.status = "live"
-                session.actual_start = timezone.now()
-                session.save(update_fields=["status", "actual_start"])
-            return Response({"detail": "room started handled"}, status=200)
-
-
-        if event == "room.ended":
-            session = (
-                LiveSession.objects
-                .filter(room__hms_room_id=room_id, status="live")
-                .first()
-            )
-            if session:
-                self.handle_room_ended(session)
-            return Response({"detail": "room ended handled"}, status=200)
-
-
-
-
-        peer = data.get("data", {}).get("peer", {})
-
-        user_id = peer.get("user_id")
-        role = peer.get("role")
-
-        # We do NOT care about host events for earnings
-        if role != "viewer":
-            return Response({"detail": "ignored"}, status=200)
-
-        # Find active live session for this room
-        session = (
-            LiveSession.objects
-            .filter(room__hms_room_id=room_id, status="live")
-            .first()
+        stream = LiveStream.objects.create(
+            streamer=user,
+            channel_name=channel_name,
+            is_live=True,
+            started_at=timezone.now()
         )
 
-        if not session:
-            return Response({"detail": "No active session"}, status=200)
+        print(f"[DEBUG] Live stream created: {stream.id}")
+
+        token = generate_agora_token(
+            channel_name=channel_name,
+            uid=0,
+            role=AGORA_ROLE_PUBLISHER
+        )
+
+        return Response(
+            {
+                "stream": LiveStreamSerializer(stream).data,
+                "agora_token": token,
+                "channel_name": channel_name,
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+
+class JoinLiveStreamView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stream_id):
+        user = request.user
 
         try:
-            viewer = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"detail": "User not found"}, status=200)
-
-        # Idempotent handling
-        if event == "peer.joined":
-            self.handle_peer_joined(session, viewer)
-
-        elif event == "peer.left":
-            self.handle_peer_left(session, viewer)
-
-        return Response({"status": "ok"}, status=200)
-
-    @transaction.atomic
-    def handle_peer_joined(self, session, viewer):
-        """
-        Create a new join event ONLY if there is no open one
-        """
-        open_event = ViewerSessionEvent.objects.filter(
-            session=session,
-            viewer=viewer,
-            left_at__isnull=True,
-        ).exists()
-
-        if open_event:
-            return
-
-        ViewerSessionEvent.objects.create(
-            session=session,
-            viewer=viewer,
-            joined_at=timezone.now(),
-        )
-
-    @transaction.atomic
-    def handle_peer_left(self, session, viewer):
-        """
-        Close the latest open event
-        """
-        event = (
-            ViewerSessionEvent.objects
-            .filter(
-                session=session,
-                viewer=viewer,
-                left_at__isnull=True,
-            )
-            .order_by("-joined_at")
-            .first()
-        )
-
-        if not event:
-            return
-
-        event.left_at = timezone.now()
-        event.save(update_fields=["left_at"])
-
-class ScheduleLiveView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request):
-        serializer = ScheduleLiveSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        room_id = serializer.validated_data["room_id"]
-        scheduled_start = serializer.validated_data["scheduled_start"]
-
-        if scheduled_start <= timezone.now():
+            stream = LiveStream.objects.get(id=stream_id, is_live=True)
+        except LiveStream.DoesNotExist:
+            print("[ERROR] Stream not found or ended")
             return Response(
-                {"detail": "Scheduled time must be in the future"},
-                status=400,
+                {"detail": "Stream not available"},
+                status=status.HTTP_404_NOT_FOUND
             )
 
-        room = get_object_or_404(
-            LiveRoom,
-            id=room_id,
-            host=request.user,
+        view_session = LiveViewSession.objects.create(
+            stream=stream,
+            viewer=user
         )
 
-        existing = LiveSession.objects.filter(
-            host=request.user,
-            status="scheduled",
-            scheduled_start__gte=timezone.now(),
-        ).exists()
+        stream.total_views += 1
+        stream.save(update_fields=["total_views"])
 
-        if existing:
-            return Response(
-                {"detail": "You already have a scheduled live"},
-                status=400,
-            )
+        print(
+            f"[DEBUG] Viewer {user} joined stream {stream.id}"
+        )
 
-        session = LiveSession.objects.create(
-            host=request.user,
-            room=room,
-            scheduled_start=scheduled_start,
-            status="scheduled",
+        token = generate_agora_token(
+            channel_name=stream.channel_name,
+            uid=user.id,
+            role=AGORA_ROLE_SUBSCRIBER
         )
 
         return Response(
             {
-                "session_id": session.id,
-                "room_id": room.id,
-                "scheduled_start": session.scheduled_start,
-                "status": session.status,
-            },
-            status=201,
-        )
-
-
-
-class GoLiveView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request):
-        session_id = request.data.get("session_id")
-
-        # 1️⃣ If there's already a live session, reuse it
-        session = LiveSession.objects.select_for_update().filter(
-            host=request.user,
-            status="live"
-        ).first()
-
-        if not session and session_id:
-            session = LiveSession.objects.select_for_update().filter(
-                id=session_id,
-                host=request.user
-            ).first()
-
-            if session and session.status in ["ended", "cancelled"]:
-                session = None
-
-        # 2️⃣ Create new session only if none exists
-        if not session:
-            room = LiveRoom.objects.filter(host=request.user).first()
-            if not room:
-                room = LiveRoom.objects.create(
-                    host=request.user,
-                    title="Untitled Room",
-                    hms_room_id=f"room-{request.user.id}-{int(timezone.now().timestamp())}",
-                    hms_room_name=f"{request.user.username}-room",
-                )
-
-            session = LiveSession.objects.create(
-                host=request.user,
-                room=room,
-                status="scheduled",
-                scheduled_start=timezone.now(),
-            )
-
-        # 3️⃣ Promote to live only if needed
-        if session.status != "live":
-            session.go_live()
-
-        # 4️⃣ ALWAYS return 200 with valid token
-        token = generate_hms_token(
-            user_id=request.user.id,
-            room_id=session.room.hms_room_id,
-            role="host",
-        )
-
-        return Response(
-            {
-                "token": token,
-                "room_id": session.room.hms_room_id,
-                "session_id": session.id,
-                "status": session.status,
-            },
-            status=200,
-        )
-
-
-
-
-class EndLiveView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        print("EndLiveView called")  # debug comment
-
-        session_id = request.data.get("session_id")
-
-        if not session_id:
-            return Response(
-                {"detail": "session_id is required"},
-                status=400,
-            )
-
-        session = get_object_or_404(
-            LiveSession,
-            id=session_id,
-            host=request.user,
-            status="live",
-        )
-
-        session.actual_end = timezone.now()
-        session.status = "ended"
-        session.save(update_fields=["actual_end", "status"])
-
-        print("Live session ended:", session.id)  # debug comment
-
-        ViewerSessionEvent.objects.filter(
-            session=session,
-            left_at__isnull=True
-        ).update(left_at=session.actual_end)
-
-        earnings = calculate_session_earnings(session)
-
-        return Response(
-            {
-                "session_id": session.id,
-                "status": session.status,
-                "total_earned": str(earnings),
+                "agora_token": token,
+                "channel_name": stream.channel_name,
             }
         )
 
 
-class ViewerJoinLiveView(APIView):
+
+class LeaveLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        serializer = ViewerJoinSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def post(self, request, stream_id):
+        user = request.user
 
-        session_id = serializer.validated_data["session_id"]
-
-        session = get_object_or_404(LiveSession, id=session_id)
-
-        # 🔒 CRITICAL CHECKS
-        if session.status != "live":
+        try:
+            session = LiveViewSession.objects.get(
+                stream_id=stream_id,
+                viewer=user,
+                is_active=True
+            )
+        except LiveViewSession.DoesNotExist:
             return Response(
-                {"detail": "Live session is not active"},
-                status=400,
+                {"detail": "Session not found"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Generate viewer token
-        token = generate_hms_token(
-            user_id=request.user.id,
-            room_id=session.room.hms_room_id,
-            role="viewer",
+        session.force_end(reason="viewer_left")
+
+        minutes = session.active_seconds // 60
+        session.minutes_watched = minutes
+
+        if minutes < MIN_PAYABLE_MINUTES:
+            session.save(update_fields=["minutes_watched"])
+            return Response(
+                {"detail": "Left stream (no payout)"},
+                status=status.HTTP_200_OK
+            )
+
+        pay_per_minute = random.uniform(0.05, 0.20)
+        earnings = minutes * pay_per_minute
+
+        session.earnings_generated = earnings
+        session.save(update_fields=[
+            "minutes_watched",
+            "earnings_generated"
+        ])
+
+        stream = session.stream
+        stream.total_earnings += earnings
+        stream.save(update_fields=["total_earnings"])
+
+        return Response(
+            {
+                "detail": "Left stream successfully",
+                "minutes": minutes,
+                "earnings": earnings,
+            },
+            status=status.HTTP_200_OK
         )
 
-        return Response({
-            "token": token,
-            "room_id": session.room.hms_room_id,
-            "session_id": session.id,
-        })
+
+
+class StreamHeartbeatView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stream_id):
+        user = request.user
+
+        try:
+            session = LiveViewSession.objects.get(
+                stream_id=stream_id,
+                viewer=user,
+                is_active=True,
+                left_at__isnull=True
+            )
+        except LiveViewSession.DoesNotExist:
+            return Response(
+                {"detail": "No active session"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        now = timezone.now()
+        delta = (now - session.last_heartbeat).total_seconds()
+
+        if delta > HEARTBEAT_TIMEOUT:
+            session.force_end(reason="heartbeat_timeout")
+            return Response(
+                {"detail": "Session expired"},
+                status=status.HTTP_410_GONE
+            )
+
+        session.active_seconds += HEARTBEAT_INTERVAL
+        session.last_heartbeat = now
+        session.save(update_fields=["active_seconds", "last_heartbeat"])
+
+        return Response(
+            {
+                "status": "ok",
+                "active_seconds": session.active_seconds,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class EndLiveStreamView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stream_id):
+        user = request.user
+
+        try:
+            stream = LiveStream.objects.get(
+                id=stream_id,
+                streamer=user,
+                is_live=True
+            )
+        except LiveStream.DoesNotExist:
+            return Response(
+                {"detail": "Stream not found or already ended"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # End stream
+        stream.is_live = False
+        stream.ended_at = timezone.now()
+        stream.save(update_fields=["is_live", "ended_at"])
+
+        # Force end all active viewer sessions
+        active_sessions = LiveViewSession.objects.filter(
+            stream=stream,
+            is_active=True
+        )
+
+        for session in active_sessions:
+            session.force_end(reason="stream_ended")
+
+            minutes = session.active_seconds // 60
+            session.minutes_watched = minutes
+
+            if minutes >= MIN_PAYABLE_MINUTES:
+                pay_per_minute = random.uniform(0.05, 0.20)
+                earnings = minutes * pay_per_minute
+
+                session.earnings_generated = earnings
+                stream.total_earnings += earnings
+
+            session.save()
+
+        stream.save(update_fields=["total_earnings"])
+
+        print(
+            f"[DEBUG] Stream {stream.id} ended by streamer {user}"
+        )
+
+        return Response(
+            {
+                "detail": "Live stream ended",
+                "total_earnings": stream.total_earnings,
+                "total_views": stream.total_views,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class JoinLiveStreamView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stream_id):
+        user = request.user
+
+        try:
+            stream = LiveStream.objects.get(
+                id=stream_id,
+                is_live=True
+            )
+        except LiveStream.DoesNotExist:
+            return Response(
+                {"detail": "Stream not available"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Prevent streamer from joining as viewer
+        if stream.streamer == user:
+            return Response(
+                {"detail": "Streamer cannot join own stream"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Prevent duplicate sessions
+        LiveViewSession.objects.filter(
+            stream=stream,
+            viewer=user,
+            is_active=True
+        ).delete()
+
+        session = LiveViewSession.objects.create(
+            stream=stream,
+            viewer=user
+        )
+
+        stream.total_views += 1
+        stream.save(update_fields=["total_views"])
+
+        token = generate_agora_token(
+            channel_name=stream.channel_name,
+            uid=user.id,
+            role=AGORA_ROLE_SUBSCRIBER
+        )
+
+        return Response(
+            {
+                "stream_id": str(stream.id),
+                "channel_name": stream.channel_name,
+                "agora_token": token,
+                "heartbeat_interval": HEARTBEAT_INTERVAL,
+            },
+            status=status.HTTP_200_OK
+        )
+
+class ActiveLiveStreamView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        active_streams = LiveStream.objects.filter(is_live=True).order_by("-started_at")
+        serializer = LiveStreamSerializer(active_streams, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
