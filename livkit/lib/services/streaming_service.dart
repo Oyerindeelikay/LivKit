@@ -1,171 +1,109 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart';
 
 class StreamingService {
-  final String baseUrl;
+  static const String baseUrl = "http://127.0.0.1:8000/api/streaming";
 
-  final Future<String?> Function() getAuthToken;
+  final String accessToken;
 
-  StreamingService({
-    
-    required this.baseUrl,
-    required this.getAuthToken,
-  });
+  StreamingService({required this.accessToken});
 
-  // ========================
-  // Internal helpers
-  // ========================
+  Map<String, String> get _headers => {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer $accessToken",
+      };
 
-  Future<Map<String, String>> _headers() async {
-    final token = await getAuthToken();
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-  }
-
-  void _log(String message) {
-    if (kDebugMode) {
-      debugPrint('🎥 [StreamingService] $message');
-    }
-  }
-
-  // ========================
-  // Schedule Live
-  // ========================
-
-  Future<Map<String, dynamic>> scheduleLive({
-    required int roomId,
-    required DateTime scheduledStart,
+  /// CREATE LIVE (Streamer)
+  Future<Map<String, dynamic>> createLiveStream({
+    required String title,
   }) async {
-    _log('Scheduling live…');
-
     final response = await http.post(
-      Uri.parse('$baseUrl/schedule/'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'room_id': roomId,
-        'scheduled_start': scheduledStart.toIso8601String(),
-      }),
+      Uri.parse("$baseUrl/create/"),
+      headers: _headers,
+      body: jsonEncode({"title": title}),
     );
-
-    _log('Schedule response: ${response.statusCode}');
-    _log(response.body);
 
     if (response.statusCode != 201) {
-      throw Exception('Failed to schedule live');
+      throw Exception("Failed to create live stream");
     }
 
     return jsonDecode(response.body);
   }
 
-  // ========================
-  // Go Live (Host)
-  // ========================
-
-  Future<HmsJoinData> goLive({
-    required int sessionId,
+  /// JOIN LIVE (Viewer)
+  Future<Map<String, dynamic>> joinLiveStream({
+    required String streamId,
   }) async {
-    _log('Requesting host token…');
-
     final response = await http.post(
-      Uri.parse('$baseUrl/golive/'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'session_id': sessionId,
-      }),
+      Uri.parse("$baseUrl/$streamId/join/"),
+      headers: _headers,
     );
-
-    _log('GoLive response: ${response.statusCode}');
-    _log(response.body);
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to go live');
-    }
-
-    final data = jsonDecode(response.body);
-
-    return HmsJoinData(
-      token: data['token'],
-      roomId: data['room_id'],
-      sessionId: data['session_id'],
-    );
-  }
-
-  // ========================
-  // Viewer Join Live
-  // ========================
-
-  Future<HmsJoinData> joinLiveAsViewer({
-    required int sessionId,
-  }) async {
-    _log('Viewer joining live…');
-
-    final response = await http.post(
-      Uri.parse('$baseUrl/viewer/join/'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'session_id': sessionId,
-      }),
-    );
-
-    _log('Viewer join response: ${response.statusCode}');
-    _log(response.body);
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to join live');
-    }
-
-    final data = jsonDecode(response.body);
-
-    return HmsJoinData(
-      token: data['token'],
-      roomId: data['room_id'],
-      sessionId: data['session_id'],
-    );
-  }
-
-  // ========================
-  // End Live (Host)
-  // ========================
-
-  Future<Map<String, dynamic>> endLive({
-    required int sessionId,
-  }) async {
-    _log('Ending live…');
-
-    final response = await http.post(
-      Uri.parse('$baseUrl/end/'),
-      headers: await _headers(),
-      body: jsonEncode({
-        'session_id': sessionId,
-      }),
-    );
-
-    _log('EndLive response: ${response.statusCode}');
-    _log(response.body);
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to end live');
+      throw Exception("Failed to join live stream");
     }
 
     return jsonDecode(response.body);
   }
-}
 
-// ========================
-// Models
-// ========================
+  /// HEARTBEAT (Viewer)
+  Future<void> sendHeartbeat({
+    required String streamId,
+  }) async {
+    final response = await http.post(
+      Uri.parse("$baseUrl/$streamId/heartbeat/"),
+      headers: _headers,
+    );
 
-class HmsJoinData {
-  final String token;
-  final String roomId;
-  final int sessionId;
+    if (response.statusCode != 200) {
+      throw Exception("Heartbeat failed");
+    }
+  }
 
-  HmsJoinData({
-    required this.token,
-    required this.roomId,
-    required this.sessionId,
-  });
+  /// LEAVE LIVE (Viewer)
+  Future<void> leaveLiveStream({
+    required String streamId,
+  }) async {
+    final response = await http.post(
+      Uri.parse("$baseUrl/$streamId/leave/"),
+      headers: _headers,
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception("Failed to leave live stream");
+    }
+  }
+
+  /// END LIVE (Streamer)
+  Future<void> endLiveStream({
+    required String streamId,
+  }) async {
+    final response = await http.post(
+      Uri.parse("$baseUrl/$streamId/end/"),
+      headers: _headers,
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception("Failed to end live stream");
+    }
+  }
+
+  /// Fetch one currently active live stream
+  Future<Map<String, dynamic>> fetchActiveStream() async {
+    final url = Uri.parse("$baseUrl/active/");
+    final response = await http.get(url, headers: _headers);
+
+    if (response.statusCode != 200) {
+      throw Exception("Failed to fetch active stream");
+    }
+
+    final data = jsonDecode(response.body);
+    if (data.isEmpty) {
+      throw Exception("No active stream");
+    }
+
+    return data[0];
+  }
+
+
 }
