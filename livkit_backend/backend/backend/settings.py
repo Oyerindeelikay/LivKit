@@ -245,7 +245,7 @@ AGORA_APP_CERTIFICATE = "f9367fb864d94ed3a0172b7a11c99fa0"
 # Token expiry (seconds) — 1 hour is reasonable for live streaming
 AGORA_TOKEN_TTL = 3600
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_BROKER_URL = "redis://red-d5ou21soud1c739gh0d0:6379"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 
