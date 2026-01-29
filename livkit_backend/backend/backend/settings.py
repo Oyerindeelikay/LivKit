@@ -215,18 +215,20 @@ GOOGLE_PRODUCT_ID = "lifetime_premium"          # match Flutter
 ASGI_APPLICATION = "backend.asgi.application"
 
 
+
+REDIS_URL = os.environ.get("REDIS_URL")
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [{
-                "address": "rediss://default:ASoQAAIncDI0NmM4MjU3MDliZTA0ZjNkYjY4ODE3NWVlOWQ3OGU1MXAyMTA3Njg@gentle-yeti-10768.upstash.io:6379",
-               
-                "ssl_cert_reqs": None,
-            }],
+            "hosts": [REDIS_URL],
         },
     },
 }
+
+CELERY_BROKER_URL = REDIS_URL
+
 
 
 
@@ -239,7 +241,6 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 
 
-CELERY_BROKER_URL = "redis://red-d5ou21soud1c739gh0d0:6379"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 
