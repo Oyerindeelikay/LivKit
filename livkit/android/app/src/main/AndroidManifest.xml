@@ -1,39 +1,66 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.yourcompany.livkit">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 🔐 REQUIRED PERMISSIONS FOR LIVE STREAMING -->
+    <!-- ===================== -->
+    <!-- PERMISSIONS -->
+    <!-- ===================== -->
+
+    <!-- Camera & Audio (Agora) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
-    <application
-        android:label="livkit"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+    <!-- Network (required for streaming) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Optional but recommended -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ===================== -->
+    <!-- APPLICATION -->
+    <!-- ===================== -->
+
+    <application
+        android:name="${applicationName}"
+        android:label="LivKit"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:supportsRtl="true">
+
+        <!-- MAIN ACTIVITY -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="
+                orientation|
+                keyboardHidden|
+                keyboard|
+                screenSize|
+                smallestScreenSize|
+                locale|
+                layoutDirection|
+                fontScale|
+                screenLayout|
+                density|
+                uiMode">
 
-            <!-- Flutter launch theme -->
+            <!-- Flutter normal theme -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <!-- MAIN LAUNCHER -->
+            <!-- APP LAUNCHER (THIS IS CRITICAL) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- DEEP LINK SUPPORT -->
-            <intent-filter>
+            <!-- Deep linking -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -45,14 +72,17 @@
 
         </activity>
 
-        <!-- Flutter embedding -->
+        <!-- Flutter embedding version -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
     </application>
 
-    <!-- Required for text processing plugins -->
+    <!-- ===================== -->
+    <!-- QUERIES (Android 11+) -->
+    <!-- ===================== -->
+
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
