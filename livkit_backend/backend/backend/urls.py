@@ -10,7 +10,8 @@ urlpatterns = [
     path('api/payments/', include('payments.urls')),
     path('', include('official_site.urls')),
     path("api/chat/", include("chat.urls")),
-    path("api/", include("streaming.urls")),
+    path("api/streaming/", include("streaming.urls")),
+
 
 ]
 
