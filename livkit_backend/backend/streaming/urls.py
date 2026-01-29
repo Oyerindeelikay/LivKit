@@ -1,11 +1,26 @@
 from django.urls import path
-from .views import ScheduleLiveView, GoLiveView,EndLiveView,HMSWebhookView, ViewerJoinLiveView
+from .views import (
+    CreateLiveStreamView,
+    JoinLiveStreamView,
+    LeaveLiveStreamView,
+    StreamHeartbeatView,
+    EndLiveStreamView,
+    ActiveLiveStreamView,
+)
 
 urlpatterns = [
-    path("schedule/", ScheduleLiveView.as_view(), name="schedule-live"),
-    path("golive/", GoLiveView.as_view(), name="go-live"),
+    path("create/", CreateLiveStreamView.as_view()),
+    path("<uuid:stream_id>/join/", JoinLiveStreamView.as_view()),
+    path("<uuid:stream_id>/leave/", LeaveLiveStreamView.as_view()),
+    path(
+        "<uuid:stream_id>/heartbeat/",
+        StreamHeartbeatView.as_view()
+    ),
+    path(
+        "<uuid:stream_id>/end/",
+        EndLiveStreamView.as_view(),
+    ),
+    path("active/", ActiveLiveStreamView.as_view(), name="active_live_stream"),
 
-    path("end/", EndLiveView.as_view(), name="end-live"),
-    path("hms/webhook/", HMSWebhookView.as_view(), name="hms-webhook"),
-    path("viewer/join/", ViewerJoinLiveView.as_view(), name="viewer-join-live"),
+
 ]
