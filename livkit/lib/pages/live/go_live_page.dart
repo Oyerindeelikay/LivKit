@@ -1,339 +1,292 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../../services/live_service.dart';
-import '../live/live_streaming_page.dart';
 import 'package:flutter/foundation.dart';
+import 'package:hmssdk_flutter/hmssdk_flutter.dart';
 
+import '../../services/streaming_service.dart';
+import '../../widgets/live_action.dart';
+import '../../widgets/tiktok_comments.dart';
+import '../profile/profile_screen.dart';
 
-class GoLivePage extends StatefulWidget {
-  const GoLivePage({super.key});
+class StreamerPage extends StatefulWidget {
+  final int sessionId;
+  final String title;
+  final StreamingService streamingService;
+
+  const StreamerPage({
+    super.key,
+    required this.sessionId,
+    required this.streamingService,
+    this.title = 'Live Now',
+  });
 
   @override
-  State<GoLivePage> createState() => _GoLivePageState();
+  State<StreamerPage> createState() => _StreamerPageState();
 }
 
-class _GoLivePageState extends State<GoLivePage> {
-  final LiveService _liveService = LiveService();
-  final TextEditingController _titleController = TextEditingController();
 
-  DateTime? _scheduledTime;
-  bool _loading = false;
+class _StreamerPageState extends State<StreamerPage>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  final TextEditingController commentController = TextEditingController();
+  final TikTokCommentsController commentsController =
+      TikTokCommentsController();
 
-  bool get _isScheduled => _scheduledTime != null;
+  late final HMSSDK _hmsSdk;
 
-  // ─────────────────────────────────────────────
-  // CREATE / START LIVE
-  // ─────────────────────────────────────────────
-  Future<void> _handleGoLive() async {
-    if (_loading) return;
+  bool _joinedRoom = false;
+  bool _endingLive = false;
 
-    FocusScope.of(context).unfocus();
+  late final AnimationController _animController;
+  late final Animation<double> _fadeScale;
 
-    final String title = _titleController.text.trim().isEmpty
-        ? "Untitled Live"
-        : _titleController.text.trim();
-
-    if (title.length < 3) {
-      _showSnack("Live title is too short");
-      return;
+  void _log(String msg) {
+    if (kDebugMode) {
+      debugPrint('🔴 [StreamerPage] $msg');
     }
+  }
 
-    setState(() => _loading = true);
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addObserver(this);
+
+    _hmsSdk = HMSSDK();
+    _startLiveFlow();
+
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+    );
+
+    _fadeScale =
+        CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic);
+
+    _animController.forward();
+  }
+
+  // =========================
+  // LIVE FLOW
+  // =========================
+
+  Future<void> _startLiveFlow() async {
+    _log('Starting live flow for session ${widget.sessionId}');
 
     try {
-      final created = await _liveService.createLiveStream(
-        title: title,
-        scheduledAt: _scheduledTime?.toIso8601String(),
+      final joinData = await widget.streamingService.goLive(
+        sessionId: widget.sessionId,
       );
 
-      final String streamId = created["id"].toString();
+      _log('Received HMS token, joining room');
 
-      if (!_isScheduled) {
-        // 🚀 Start live immediately
-        final started = await _liveService.startLiveStream(streamId);
-
-        final token = started["agora_token"];
-        final channel = started["agora_channel"];
-
-        debugPrint("🎬 [START_LIVE] streamId=$streamId");
-        debugPrint("🎟️ token=${token != null ? 'OK' : 'NULL'}");
-        debugPrint("📡 channel=$channel");
-
-        if (token == null || channel == null) {
-          throw Exception(
-            "Backend did not return valid Agora credentials: $started",
-          );
-        }
-
-        if (!mounted) return;
-        debugPrint("🚀 Navigating to LiveStreamingPage");
-
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => LiveStreamingPage(
-              streamId: streamId,
-              title: title,
-              isHost: true,
-              agoraToken: token,
-              channelName: channel,
-              uid: started["uid"] ?? 0,
+      await _hmsSdk.join(
+        config: HMSConfig(
+          authToken: joinData.token,
+          userName: 'host-${widget.sessionId}',
+        ),
+      );
 
 
-            ),
-          ),
-        );
-      } else {
-        _showSnack("Live scheduled successfully");
-      }
-    } catch (e) {
 
-      debugPrint("GoLive error: $e");
-      _showSnack("Failed to start live stream");
-    } finally {
+      _joinedRoom = true;
+      _log('Successfully joined HMS room');
+    } catch (e, stack) {
+      _log('FAILED to start live: $e');
+      _log(stack.toString());
+
       if (mounted) {
-        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to go live')),
+        );
+        Navigator.pop(context);
       }
     }
   }
 
-  // ─────────────────────────────────────────────
-  // PICK SCHEDULE TIME
-  // ─────────────────────────────────────────────
-  Future<void> _pickScheduleTime() async {
-    final now = DateTime.now();
+  // =========================
+  // END LIVE (SAFE)
+  // =========================
 
-    final date = await showDatePicker(
-      context: context,
-      initialDate: now,
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 30)),
-    );
+  Future<void> _endLive() async {
+    if (_endingLive) return;
+    _endingLive = true;
 
-    if (date == null) return;
+    _log('Ending live session');
 
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
+    try {
+      if (_joinedRoom) {
+        await _hmsSdk.leave();
+        _log('Left HMS room');
+      }
 
-    if (time == null) return;
+      await widget.streamingService.endLive(
+        sessionId: widget.sessionId,
+      );
 
-    final selected = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-
-    if (selected.isBefore(DateTime.now().add(const Duration(minutes: 1)))) {
-      _showSnack("Scheduled time must be in the future");
-      return;
+      _log('Backend live ended successfully');
+    } catch (e, stack) {
+      _log('ERROR ending live: $e');
+      _log(stack.toString());
     }
-
-    setState(() {
-      _scheduledTime = selected;
-    });
   }
 
-  // ─────────────────────────────────────────────
-  // SHARE LINK
-  // ─────────────────────────────────────────────
-  void _shareLink() {
-    const link = "https://yourapp.com/live"; // replace with real deep link later
-    Clipboard.setData(const ClipboardData(text: link));
-    _showSnack("Live link copied");
-  }
+  // =========================
+  // LIFECYCLE HANDLING
+  // =========================
 
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached ||
+        state == AppLifecycleState.inactive) {
+      _log('App lifecycle exit detected');
+      _endLive();
+    }
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    commentController.dispose();
+    _animController.dispose();
     super.dispose();
   }
 
+  // =========================
+  // COMMENTS
+  // =========================
 
+  void _sendComment() {
+    final text = commentController.text.trim();
+    if (text.isEmpty) return;
 
+    commentsController.addComment(text);
+    commentController.clear();
+  }
 
-
-  // ─────────────────────────────────────────────
+  // =========================
   // UI
-  // ─────────────────────────────────────────────
+  // =========================
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _topBar(),
-            const SizedBox(height: 12),
-            _cameraPreview(),
-            const SizedBox(height: 18),
-            _titleInput(),
-            const SizedBox(height: 14),
-            _optionsRow(),
-            if (_isScheduled) _scheduleChip(),
-            const Spacer(),
-            _goLiveButton(),
-          ],
-        ),
-      ),
-    );
-  }
+      body: FadeTransition(
+        opacity: _fadeScale,
+        child: ScaleTransition(
+          scale: Tween(begin: 0.97, end: 1.0).animate(_fadeScale),
+          child: Stack(
+            children: [
+              // 🎥 VIDEO SURFACE PLACEHOLDER
+              Container(
+                color: Colors.black,
+                child: const Center(
+                  child: Text(
+                    'LIVE VIDEO STREAM',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                ),
+              ),
 
-  Widget _topBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: const [
-          BackButton(color: Colors.white),
-          Spacer(),
-          Text(
-            "Go Live",
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-          Spacer(),
-        ],
-      ),
-    );
-  }
+              // 👤 TOP INFO
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 12,
+                left: 15,
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ProfileScreen(),
+                      ),
+                    );
+                  },
+                  child: Row(
+                    children: [
+                      const CircleAvatar(radius: 18),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Text(
+                            'LIVE',
+                            style: TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
-  Widget _cameraPreview() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      height: MediaQuery.of(context).size.height * 0.42,
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Center(
-        child: Icon(Icons.videocam, color: Colors.white54, size: 60),
-      ),
-    );
-  }
+              // 🎯 ACTIONS
+              Positioned(
+                right: 10,
+                bottom: 160,
+                child: Column(
+                  children: const [
+                    LiveAction(icon: Icons.attach_money, label: 'Sub'),
+                    SizedBox(height: 12),
+                    LiveAction(icon: Icons.card_giftcard, label: 'Gift'),
+                    SizedBox(height: 12),
+                    LiveAction(icon: Icons.person_add, label: 'Join'),
+                    SizedBox(height: 12),
+                    LiveAction(icon: Icons.share, label: 'Share'),
+                  ],
+                ),
+              ),
 
-  Widget _titleInput() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: TextField(
-        controller: _titleController,
-        maxLength: 80,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          counterText: "",
-          hintText: "Add a title for your live",
-          hintStyle: const TextStyle(color: Colors.white54),
-          filled: true,
-          fillColor: Colors.white12,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none,
-          ),
-        ),
-      ),
-    );
-  }
+              // 💬 COMMENTS
+              TikTokComments(controller: commentsController),
 
-  Widget _optionsRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _Option(icon: Icons.schedule, label: "Schedule", onTap: _pickScheduleTime),
-        _Option(icon: Icons.share, label: "Share", onTap: _shareLink),
-        const _Option(icon: Icons.chat_bubble_outline, label: "Chat"),
-        const _Option(icon: Icons.card_giftcard, label: "Gifts"),
-      ],
-    );
-  }
-
-  Widget _scheduleChip() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: Chip(
-        backgroundColor: Colors.pinkAccent,
-        label: Text(
-          "Scheduled: ${_scheduledTime!.toLocal()}",
-          style: const TextStyle(color: Colors.white),
-        ),
-      ),
-    );
-  }
-
-  Widget _goLiveButton() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 30),
-      child: GestureDetector(
-        onTap: _loading ? null : _handleGoLive,
-        child: Container(
-          width: 240,
-          height: 52,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFF0050), Color(0xFFFF2E63)],
-            ),
-            borderRadius: BorderRadius.circular(26),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.pinkAccent.withOpacity(0.4),
-                blurRadius: 15,
-                offset: const Offset(0, 6),
+              // ✍️ INPUT
+              Positioned(
+                bottom: 40,
+                left: 10,
+                right: 10,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: commentController,
+                        style: const TextStyle(color: Colors.white),
+                        onSubmitted: (_) => _sendComment(),
+                        decoration: InputDecoration(
+                          hintText: 'Add a comment...',
+                          hintStyle:
+                              const TextStyle(color: Colors.white54),
+                          filled: true,
+                          fillColor: Colors.white12,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(25),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.send, color: Colors.white),
+                      onPressed: _sendComment,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          child: Center(
-            child: _loading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : Text(
-                    _isScheduled ? "SCHEDULE LIVE" : "GO LIVE",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-          ),
         ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// OPTION WIDGET
-// ─────────────────────────────────────────────
-class _Option extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  const _Option({
-    required this.icon,
-    required this.label,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: Colors.white12,
-            child: Icon(icon, color: Colors.white),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-        ],
       ),
     );
   }
