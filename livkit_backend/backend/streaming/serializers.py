@@ -1,41 +1,27 @@
 from rest_framework import serializers
-from .models import LiveStream, Gift, MinuteBalance
-from .models import StreamEarning
-
-class LiveStreamSerializer(serializers.ModelSerializer):
-    is_live = serializers.SerializerMethodField()
-    is_ended = serializers.SerializerMethodField()
-
-    class Meta:
-        model = LiveStream
-        fields = "__all__"
-
-    def get_is_live(self, obj):
-        return obj.status == "live"
-
-    def get_is_ended(self, obj):
-        return obj.status == "ended"
 
 
+class ScheduleLiveSerializer(serializers.Serializer):
+    room_id = serializers.IntegerField()
+    scheduled_start = serializers.DateTimeField()
+
+    def validate_scheduled_start(self, value):
+        """
+        Prevent scheduling lives in the past
+        """
+        from django.utils import timezone
+
+        if value <= timezone.now():
+            print("Invalid scheduled_start: in the past")  # debug comment
+            raise serializers.ValidationError(
+                "Scheduled start must be in the future."
+            )
+
+        print("Scheduled start time validated")  # debug comment
+        return value
 
 
-class GiftSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Gift
-        fields = "__all__"
 
 
-class MinuteBalanceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MinuteBalance
-        fields = ["seconds_balance"]
-
-class StreamEarningSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StreamEarning
-        fields = [
-            "stream",
-            "host",
-            "total_cents",
-            "last_calculated_at",
-        ]
+class ViewerJoinSerializer(serializers.Serializer):
+    session_id = serializers.IntegerField()
