@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../pages/home/home_page.dart';
 import '../pages/live/live_streaming_page.dart';
+import '../pages/live/streamer_page.dart';
 import '../pages/live/go_live_page.dart';
 import '../pages/chat/chat_page.dart';
 import '../pages/profile/self_profile_screen.dart';
@@ -10,6 +11,7 @@ import 'bottom_nav.dart';
 
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
+import '../services/streaming_service.dart';
 
 
 class MainNavigation extends StatefulWidget {
@@ -23,6 +25,8 @@ class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
   bool _isLoading = true;
   String? _userToken;
+  late final StreamingService _streamingService;
+
 
   @override
   void initState() {
@@ -32,6 +36,10 @@ class _MainNavigationState extends State<MainNavigation> {
 
   /// Fetch token and check paid access
   Future<void> _initializeUser() async {
+    _streamingService = StreamingService(
+      baseUrl: 'http://127.0.0.1:8000/api/streaming/',
+      getAuthToken: () async => _userToken,
+    );
     final auth = AuthService();
 
     try {
@@ -68,13 +76,21 @@ class _MainNavigationState extends State<MainNavigation> {
     if (index == 2) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const GoLivePage()),
+        MaterialPageRoute(
+          builder: (_) => GoLivePage(
+            roomId: 1, // replace with real LiveRoom.id
+            streamingService: _streamingService,
+            userToken: _userToken!,
+          ),
+        ),
       );
+
       return;
     }
 
     setState(() => _selectedIndex = index);
   }
+
 
 
   Widget _buildChatPage() {
