@@ -1,46 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:hmssdk_flutter/hmssdk_flutter.dart';
 
+import '../../services/auth_service.dart';
 import '../../services/streaming_service.dart';
-import '../../widgets/live_action.dart';
-import '../../widgets/tiktok_comments.dart';
-import '../profile/profile_screen.dart';
+import 'streamer_page.dart';
+import '../settings/gift_and_earnings_page.dart';
+import '../chat/chat_page.dart';
 
-class StreamerPage extends StatefulWidget {
-  final int sessionId;
-  final String title;
+class GoLivePage extends StatefulWidget {
+  final int roomId;
   final StreamingService streamingService;
+  final String userToken; // ← add this
 
-  const StreamerPage({
+  const GoLivePage({
     super.key,
-    required this.sessionId,
+    required this.roomId,
     required this.streamingService,
-    this.title = 'Live Now',
+    required this.userToken, // ← require it
   });
 
   @override
-  State<StreamerPage> createState() => _StreamerPageState();
+  State<GoLivePage> createState() => _GoLivePageState();
 }
 
 
-class _StreamerPageState extends State<StreamerPage>
-    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  final TextEditingController commentController = TextEditingController();
-  final TikTokCommentsController commentsController =
-      TikTokCommentsController();
+class _GoLivePageState extends State<GoLivePage> {
+  final TextEditingController _titleController = TextEditingController();
 
-  late final HMSSDK _hmsSdk;
+  late final StreamingService _streamingService;
+  late final AuthService _authService;
 
-  bool _joinedRoom = false;
-  bool _endingLive = false;
-
-  late final AnimationController _animController;
-  late final Animation<double> _fadeScale;
+  bool _loading = false;
 
   void _log(String msg) {
     if (kDebugMode) {
-      debugPrint('🔴 [StreamerPage] $msg');
+      debugPrint('🎬 [GoLivePage] $msg');
     }
   }
 
@@ -48,245 +42,302 @@ class _StreamerPageState extends State<StreamerPage>
   void initState() {
     super.initState();
 
-    WidgetsBinding.instance.addObserver(this);
-
-    _hmsSdk = HMSSDK();
-    _startLiveFlow();
-
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 450),
+    _authService = AuthService();
+    _streamingService = StreamingService(
+      baseUrl: 'http://127.0.0.1:8000/api/streaming',
+      getAuthToken: _authService.getAccessToken,
     );
-
-    _fadeScale =
-        CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic);
-
-    _animController.forward();
   }
 
   // =========================
-  // LIVE FLOW
+  // GO LIVE NOW
   // =========================
+  Future<void> _goLiveNow() async {
+    if (_loading) return;
+    setState(() => _loading = true);
 
-  Future<void> _startLiveFlow() async {
-    _log('Starting live flow for session ${widget.sessionId}');
+    _log('GO LIVE pressed');
 
     try {
-      final joinData = await widget.streamingService.goLive(
-        sessionId: widget.sessionId,
+      final joinData = await _streamingService.goLive(
+        sessionId: 0, // backend should resolve active room for host
       );
 
-      _log('Received HMS token, joining room');
+      if (!mounted) return;
 
-      await _hmsSdk.join(
-        config: HMSConfig(
-          authToken: joinData.token,
-          userName: 'host-${widget.sessionId}',
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => StreamerPage(
+            sessionId: joinData.sessionId,
+            title: _titleController.text.trim().isEmpty
+                ? 'Untitled Live'
+                : _titleController.text.trim(),
+            streamingService: _streamingService,
+          ),
         ),
       );
-
-
-
-      _joinedRoom = true;
-      _log('Successfully joined HMS room');
     } catch (e, stack) {
-      _log('FAILED to start live: $e');
+      _log('ERROR: $e');
       _log(stack.toString());
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to go live')),
-        );
-        Navigator.pop(context);
-      }
+      _snack('Failed to go live');
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   // =========================
-  // END LIVE (SAFE)
+  // SCHEDULE LIVE
   // =========================
+  Future<void> _scheduleLive() async {
+    _log('Schedule pressed');
 
-  Future<void> _endLive() async {
-    if (_endingLive) return;
-    _endingLive = true;
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: DateTime.now(),
+    );
 
-    _log('Ending live session');
+    if (date == null) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+
+    if (time == null) return;
+
+    final scheduledAt = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
 
     try {
-      if (_joinedRoom) {
-        await _hmsSdk.leave();
-        _log('Left HMS room');
-      }
-
-      await widget.streamingService.endLive(
-        sessionId: widget.sessionId,
+      await _streamingService.scheduleLive(
+        roomId: 0, // backend decides room ownership
+        scheduledStart: scheduledAt,
       );
 
-      _log('Backend live ended successfully');
-    } catch (e, stack) {
-      _log('ERROR ending live: $e');
-      _log(stack.toString());
+      _snack('Live scheduled successfully');
+      _log('Scheduled for $scheduledAt');
+    } catch (e) {
+      _log('Schedule error: $e');
+      _snack('Failed to schedule live');
     }
   }
 
-  // =========================
-  // LIFECYCLE HANDLING
-  // =========================
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached ||
-        state == AppLifecycleState.inactive) {
-      _log('App lifecycle exit detected');
-      _endLive();
-    }
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    commentController.dispose();
-    _animController.dispose();
+    _titleController.dispose();
     super.dispose();
   }
 
   // =========================
-  // COMMENTS
+  // UI (UNCHANGED)
   // =========================
-
-  void _sendComment() {
-    final text = commentController.text.trim();
-    if (text.isEmpty) return;
-
-    commentsController.addComment(text);
-    commentController.clear();
-  }
-
-  // =========================
-  // UI
-  // =========================
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: FadeTransition(
-        opacity: _fadeScale,
-        child: ScaleTransition(
-          scale: Tween(begin: 0.97, end: 1.0).animate(_fadeScale),
-          child: Stack(
-            children: [
-              // 🎥 VIDEO SURFACE PLACEHOLDER
-              Container(
-                color: Colors.black,
-                child: const Center(
-                  child: Text(
-                    'LIVE VIDEO STREAM',
-                    style: TextStyle(color: Colors.white54),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // ───────── TOP BAR ─────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: const Icon(Icons.close, color: Colors.white),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    'Go Live',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ───────── CAMERA PREVIEW ─────────
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              height: MediaQuery.of(context).size.height * 0.42,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Center(
+                child: Icon(Icons.videocam, color: Colors.white54, size: 60),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // ───────── TITLE ─────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TextField(
+                controller: _titleController,
+                style: const TextStyle(color: Colors.white),
+                maxLength: 80,
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: 'Add a title for your live',
+                  hintStyle: const TextStyle(color: Colors.white54),
+                  filled: true,
+                  fillColor: Colors.white12,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
                   ),
                 ),
               ),
+            ),
 
-              // 👤 TOP INFO
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 12,
-                left: 15,
-                child: GestureDetector(
+            const SizedBox(height: 15),
+
+            // ───────── OPTIONS ─────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _Option(
+                  icon: Icons.schedule,
+                  label: 'Schedule',
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Coming Soon'),
+                        content: const Text('This feature is not available yet.'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                _Option(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Chat',
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const ProfileScreen(),
+                        builder: (context) => ChatPageList(token: widget.userToken),
+
                       ),
                     );
                   },
-                  child: Row(
-                    children: [
-                      const CircleAvatar(radius: 18),
-                      const SizedBox(width: 8),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Text(
-                            'LIVE',
-                            style: TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                ),
+                _Option(
+                  icon: Icons.card_giftcard,
+                  label: 'Gifts',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => GiftsEarningsPage(),
                       ),
-                    ],
+                    );
+                  },
+                ),
+                const _Option(icon: Icons.mic_none, label: 'Mic'),
+              ],
+            ),
+
+
+
+            const Spacer(),
+
+            // ───────── GO LIVE ─────────
+            Padding(
+              padding: const EdgeInsets.only(bottom: 30),
+              child: GestureDetector(
+                onTap: _loading ? null : _goLiveNow,
+                child: Container(
+                  width: 240,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF0050), Color(0xFFFF2E63)],
+                    ),
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                  child: Center(
+                    child: _loading
+                        ? const CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2)
+                        : const Text(
+                            'GO LIVE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
                   ),
                 ),
               ),
-
-              // 🎯 ACTIONS
-              Positioned(
-                right: 10,
-                bottom: 160,
-                child: Column(
-                  children: const [
-                    LiveAction(icon: Icons.attach_money, label: 'Sub'),
-                    SizedBox(height: 12),
-                    LiveAction(icon: Icons.card_giftcard, label: 'Gift'),
-                    SizedBox(height: 12),
-                    LiveAction(icon: Icons.person_add, label: 'Join'),
-                    SizedBox(height: 12),
-                    LiveAction(icon: Icons.share, label: 'Share'),
-                  ],
-                ),
-              ),
-
-              // 💬 COMMENTS
-              TikTokComments(controller: commentsController),
-
-              // ✍️ INPUT
-              Positioned(
-                bottom: 40,
-                left: 10,
-                right: 10,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: commentController,
-                        style: const TextStyle(color: Colors.white),
-                        onSubmitted: (_) => _sendComment(),
-                        decoration: InputDecoration(
-                          hintText: 'Add a comment...',
-                          hintStyle:
-                              const TextStyle(color: Colors.white54),
-                          filled: true,
-                          fillColor: Colors.white12,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(25),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: _sendComment,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+// ───────── OPTION WIDGET ─────────
+class _Option extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _Option({
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: Colors.white12,
+            child: Icon(icon, color: Colors.white),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
