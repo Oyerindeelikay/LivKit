@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
 
 import '../../widgets/live_action.dart';
 import '../../widgets/tiktok_comments.dart';
 import '../../services/streaming_service.dart';
-import 'package:permission_handler/permission_handler.dart';
+
+import '../../config/agora_config.dart';
 
 class StreamerPage extends StatefulWidget {
   final String streamId;
@@ -29,7 +32,10 @@ class StreamerPage extends StatefulWidget {
 class _StreamerPageState extends State<StreamerPage>
     with SingleTickerProviderStateMixin {
   late final RtcEngine _engine;
+
   bool _isLive = false;
+  bool _engineReady = false;
+  bool _isEnding = false;
 
   final TextEditingController _commentController = TextEditingController();
   final TikTokCommentsController commentsController =
@@ -42,10 +48,10 @@ class _StreamerPageState extends State<StreamerPage>
   void initState() {
     super.initState();
     _setupAnimations();
-    _initAgora();
+    _initLive();
   }
 
-
+  // ───────── ANIMATIONS ─────────
   void _setupAnimations() {
     _animController = AnimationController(
       vsync: this,
@@ -57,20 +63,55 @@ class _StreamerPageState extends State<StreamerPage>
 
     _animController.forward();
   }
-  
+
+  // ───────── PERMISSIONS + START ─────────
+  Future<void> _initLive() async {
+
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      print("Permissions skipped on unsupported platform"); // debug
+      return;
+    }
+
+    await _requestPermissions();
+
+    final camStatus = await Permission.camera.status;
+    final micStatus = await Permission.microphone.status;
+
+    print("Camera permission: $camStatus"); // debug
+    print("Mic permission: $micStatus"); // debug
+
+    if (camStatus.isGranted && micStatus.isGranted) {
+      await _initAgora();
+    } else {
+      print("Permissions not granted"); // debug
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Camera and microphone permissions are required"),
+          ),
+        );
+        Navigator.pop(context);
+      }
+    }
+  }
+
   Future<void> _requestPermissions() async {
-    await [
+    final statuses = await [
       Permission.camera,
       Permission.microphone,
     ].request();
+
+    print("Permission statuses: $statuses"); // debug
   }
 
+  // ───────── AGORA INIT ─────────
   Future<void> _initAgora() async {
     _engine = createAgoraRtcEngine();
 
     await _engine.initialize(
       const RtcEngineContext(
-        appId: String.fromEnvironment('AGORA_APP_ID'),
+        appId: AgoraConfig.appId,
         channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
       ),
     );
@@ -89,13 +130,19 @@ class _StreamerPageState extends State<StreamerPage>
       options: const ChannelMediaOptions(),
     );
 
-    setState(() => _isLive = true);
+    print("Agora joined channel successfully"); // debug
+
+    if (mounted) {
+      setState(() {
+        _isLive = true;
+        _engineReady = true;
+      });
+    }
   }
 
-  bool _isEnding = false;
-
+  // ───────── END LIVE ─────────
   Future<void> _endLive() async {
-    if (_isEnding) return; // Prevent double-tap
+    if (_isEnding) return;
     _isEnding = true;
 
     final streamingService = StreamingService(accessToken: widget.accessToken);
@@ -103,25 +150,26 @@ class _StreamerPageState extends State<StreamerPage>
     try {
       await streamingService.endLiveStream(streamId: widget.streamId);
 
-      // Leave Agora channel
-      try {
-        await _engine.leaveChannel();
-        await _engine.release();
-      } catch (e) {
-        debugPrint("Agora leave/release error: $e");
+      if (_engineReady) {
+        try {
+          await _engine.leaveChannel();
+          await _engine.release();
+        } catch (e) {
+          print("Agora leave/release error: $e"); // debug
+        }
+      } else {
+        print("Agora engine not initialized, skipping release"); // debug
       }
 
-      // Show success message (optional)
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Live stream ended")),
         );
-
-        // Go back to homepage
         Navigator.pop(context);
       }
     } catch (e) {
-      debugPrint("End live error: $e");
+      print("End live error: $e"); // debug
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -133,8 +181,7 @@ class _StreamerPageState extends State<StreamerPage>
     }
   }
 
-
-
+  // ───────── COMMENTS ─────────
   void _sendComment() {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
@@ -150,7 +197,7 @@ class _StreamerPageState extends State<StreamerPage>
     super.dispose();
   }
 
-
+  // ───────── UI ─────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -162,12 +209,18 @@ class _StreamerPageState extends State<StreamerPage>
           child: Stack(
             children: [
               // 🎥 LIVE VIDEO
-              AgoraVideoView(
-                controller: VideoViewController(
-                  rtcEngine: _engine,
-                  canvas: const VideoCanvas(uid: 0),
-                ),
-              ),
+              _engineReady
+                  ? AgoraVideoView(
+                      controller: VideoViewController(
+                        rtcEngine: _engine,
+                        canvas: const VideoCanvas(uid: 0),
+                      ),
+                    )
+                  : const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                      ),
+                    ),
 
               // 🔝 TOP INFO
               Positioned(
@@ -200,7 +253,9 @@ class _StreamerPageState extends State<StreamerPage>
                       onTap: _endLive,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.redAccent,
                           borderRadius: BorderRadius.circular(20),
@@ -257,7 +312,9 @@ class _StreamerPageState extends State<StreamerPage>
                           filled: true,
                           fillColor: Colors.white12,
                           contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 12),
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(25),
                             borderSide: BorderSide.none,
@@ -266,8 +323,7 @@ class _StreamerPageState extends State<StreamerPage>
                       ),
                     ),
                     IconButton(
-                      icon:
-                          const Icon(Icons.send, color: Colors.white),
+                      icon: const Icon(Icons.send, color: Colors.white),
                       onPressed: _sendComment,
                     ),
                   ],
