@@ -1,27 +1,21 @@
 from rest_framework import serializers
+from .models import LiveStream
 
 
-class ScheduleLiveSerializer(serializers.Serializer):
-    room_id = serializers.IntegerField()
-    scheduled_start = serializers.DateTimeField()
+class LiveStreamSerializer(serializers.ModelSerializer):
+    streamer_username = serializers.CharField(
+        source="streamer.username",
+        read_only=True
+    )
 
-    def validate_scheduled_start(self, value):
-        """
-        Prevent scheduling lives in the past
-        """
-        from django.utils import timezone
-
-        if value <= timezone.now():
-            print("Invalid scheduled_start: in the past")  # debug comment
-            raise serializers.ValidationError(
-                "Scheduled start must be in the future."
-            )
-
-        print("Scheduled start time validated")  # debug comment
-        return value
-
-
-
-
-class ViewerJoinSerializer(serializers.Serializer):
-    session_id = serializers.IntegerField()
+    class Meta:
+        model = LiveStream
+        fields = [
+            "id",
+            "channel_name",
+            "streamer_username",
+            "is_live",
+            "total_views",
+            "total_earnings",
+            "started_at",
+        ]
