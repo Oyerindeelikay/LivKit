@@ -1,139 +1,67 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-
-import '../../services/auth_service.dart';
 import '../../services/streaming_service.dart';
 import 'streamer_page.dart';
-import '../settings/gift_and_earnings_page.dart';
-import '../chat/chat_page.dart';
 
 class GoLivePage extends StatefulWidget {
-  final int roomId;
-  final StreamingService streamingService;
-  final String userToken; // ← add this
+  final String accessToken; // Auth token
 
   const GoLivePage({
     super.key,
-    required this.roomId,
-    required this.streamingService,
-    required this.userToken, // ← require it
+    required this.accessToken,
   });
 
   @override
   State<GoLivePage> createState() => _GoLivePageState();
 }
 
-
 class _GoLivePageState extends State<GoLivePage> {
   final TextEditingController _titleController = TextEditingController();
+  bool _isLoading = false;
 
-  late final StreamingService _streamingService;
-  late final AuthService _authService;
 
-  bool _loading = false;
+  Future<void> _startLive() async {
+    if (_isLoading) return;
 
-  void _log(String msg) {
-    if (kDebugMode) {
-      debugPrint('🎬 [GoLivePage] $msg');
-    }
-  }
+    setState(() => _isLoading = true);
 
-  @override
-  void initState() {
-    super.initState();
-
-    _authService = AuthService();
-    _streamingService = StreamingService(
-      baseUrl: 'http://127.0.0.1:8000/api/streaming',
-      getAuthToken: _authService.getAccessToken,
+    final streamingService = StreamingService(
+      accessToken: widget.accessToken,
     );
-  }
-
-  // =========================
-  // GO LIVE NOW
-  // =========================
-  Future<void> _goLiveNow() async {
-    if (_loading) return;
-    setState(() => _loading = true);
-
-    _log('GO LIVE pressed');
 
     try {
-      final joinData = await _streamingService.goLive(
-        sessionId: 0, // backend should resolve active room for host
+      final response = await streamingService.createLiveStream(
+        title: _titleController.text.trim().isEmpty
+            ? "Untitled Live"
+            : _titleController.text.trim(),
       );
 
-      if (!mounted) return;
+      final stream = response["stream"];
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => StreamerPage(
-            sessionId: joinData.sessionId,
+            streamId: stream["id"],
+            channelName: response["channel_name"],
+            agoraToken: response["agora_token"],
+            accessToken: widget.accessToken, // ✅ THIS WAS MISSING
             title: _titleController.text.trim().isEmpty
-                ? 'Untitled Live'
+                ? "Live Now"
                 : _titleController.text.trim(),
-            streamingService: _streamingService,
           ),
         ),
       );
-    } catch (e, stack) {
-      _log('ERROR: $e');
-      _log(stack.toString());
 
-      _snack('Failed to go live');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  // =========================
-  // SCHEDULE LIVE
-  // =========================
-  Future<void> _scheduleLive() async {
-    _log('Schedule pressed');
-
-    final date = await showDatePicker(
-      context: context,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      initialDate: DateTime.now(),
-    );
-
-    if (date == null) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-
-    if (time == null) return;
-
-    final scheduledAt = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-
-    try {
-      await _streamingService.scheduleLive(
-        roomId: 0, // backend decides room ownership
-        scheduledStart: scheduledAt,
-      );
-
-      _snack('Live scheduled successfully');
-      _log('Scheduled for $scheduledAt');
     } catch (e) {
-      _log('Schedule error: $e');
-      _snack('Failed to schedule live');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Failed to start live stream"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
     }
-  }
-
-  void _snack(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -142,9 +70,6 @@ class _GoLivePageState extends State<GoLivePage> {
     super.dispose();
   }
 
-  // =========================
-  // UI (UNCHANGED)
-  // =========================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -163,7 +88,7 @@ class _GoLivePageState extends State<GoLivePage> {
                   ),
                   const Spacer(),
                   const Text(
-                    'Go Live',
+                    "Go Live",
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -177,7 +102,7 @@ class _GoLivePageState extends State<GoLivePage> {
 
             const SizedBox(height: 10),
 
-            // ───────── CAMERA PREVIEW ─────────
+            // ───────── CAMERA PREVIEW PLACEHOLDER ─────────
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               height: MediaQuery.of(context).size.height * 0.42,
@@ -186,13 +111,17 @@ class _GoLivePageState extends State<GoLivePage> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Center(
-                child: Icon(Icons.videocam, color: Colors.white54, size: 60),
+                child: Icon(
+                  Icons.videocam,
+                  color: Colors.white54,
+                  size: 60,
+                ),
               ),
             ),
 
             const SizedBox(height: 20),
 
-            // ───────── TITLE ─────────
+            // ───────── TITLE INPUT ─────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: TextField(
@@ -200,8 +129,8 @@ class _GoLivePageState extends State<GoLivePage> {
                 style: const TextStyle(color: Colors.white),
                 maxLength: 80,
                 decoration: InputDecoration(
-                  counterText: '',
-                  hintText: 'Add a title for your live',
+                  counterText: "",
+                  hintText: "Add a title for your live",
                   hintStyle: const TextStyle(color: Colors.white54),
                   filled: true,
                   fillColor: Colors.white12,
@@ -218,64 +147,21 @@ class _GoLivePageState extends State<GoLivePage> {
             // ───────── OPTIONS ─────────
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _Option(
-                  icon: Icons.schedule,
-                  label: 'Schedule',
-                  onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Coming Soon'),
-                        content: const Text('This feature is not available yet.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('OK'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                _Option(
-                  icon: Icons.chat_bubble_outline,
-                  label: 'Chat',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatPageList(token: widget.userToken),
-
-                      ),
-                    );
-                  },
-                ),
-                _Option(
-                  icon: Icons.card_giftcard,
-                  label: 'Gifts',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => GiftsEarningsPage(),
-                      ),
-                    );
-                  },
-                ),
-                const _Option(icon: Icons.mic_none, label: 'Mic'),
+              children: const [
+                _Option(icon: Icons.public, label: "Public"),
+                _Option(icon: Icons.chat_bubble_outline, label: "Chat"),
+                _Option(icon: Icons.card_giftcard, label: "Gifts"),
+                _Option(icon: Icons.mic_none, label: "Mic"),
               ],
             ),
 
-
-
             const Spacer(),
 
-            // ───────── GO LIVE ─────────
+            // ───────── GO LIVE BUTTON ─────────
             Padding(
               padding: const EdgeInsets.only(bottom: 30),
               child: GestureDetector(
-                onTap: _loading ? null : _goLiveNow,
+                onTap: _isLoading ? null : _startLive,
                 child: Container(
                   width: 240,
                   height: 52,
@@ -284,13 +170,22 @@ class _GoLivePageState extends State<GoLivePage> {
                       colors: [Color(0xFFFF0050), Color(0xFFFF2E63)],
                     ),
                     borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.pinkAccent.withOpacity(0.4),
+                        blurRadius: 15,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
                   ),
                   child: Center(
-                    child: _loading
+                    child: _isLoading
                         ? const CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2)
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          )
                         : const Text(
-                            'GO LIVE',
+                            "GO LIVE",
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 18,
@@ -313,32 +208,24 @@ class _GoLivePageState extends State<GoLivePage> {
 class _Option extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback? onTap;
 
-  const _Option({
-    required this.icon,
-    required this.label,
-    this.onTap,
-  });
+  const _Option({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 26,
-            backgroundColor: Colors.white12,
-            child: Icon(icon, color: Colors.white),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ],
-      ),
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 26,
+          backgroundColor: Colors.white12,
+          child: Icon(icon, color: Colors.white),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ],
     );
   }
 }
