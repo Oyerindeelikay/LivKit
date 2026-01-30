@@ -28,6 +28,7 @@ class CreateLiveStreamView(APIView):
 
     def post(self, request):
         user = request.user
+        print("[DEBUG] Create stream requested by:", user.id)
 
         channel_name = f"live_{user.id}_{int(timezone.now().timestamp())}"
 
@@ -38,13 +39,19 @@ class CreateLiveStreamView(APIView):
             started_at=timezone.now()
         )
 
-        print(f"[DEBUG] Live stream created: {stream.id}")
-
-        token = generate_agora_token(
-            channel_name=channel_name,
-            uid=0,
-            role=AGORA_ROLE_PUBLISHER
-        )
+        try:
+            token = generate_agora_token(
+                channel_name=channel_name,
+                uid=0,
+                role=AGORA_ROLE_PUBLISHER
+            )
+        except Exception as e:
+            print("[AGORA ERROR]", str(e))
+            stream.delete()
+            return Response(
+                {"detail": "Agora token error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(
             {
@@ -56,46 +63,6 @@ class CreateLiveStreamView(APIView):
         )
 
 
-
-class JoinLiveStreamView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, stream_id):
-        user = request.user
-
-        try:
-            stream = LiveStream.objects.get(id=stream_id, is_live=True)
-        except LiveStream.DoesNotExist:
-            print("[ERROR] Stream not found or ended")
-            return Response(
-                {"detail": "Stream not available"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        view_session = LiveViewSession.objects.create(
-            stream=stream,
-            viewer=user
-        )
-
-        stream.total_views += 1
-        stream.save(update_fields=["total_views"])
-
-        print(
-            f"[DEBUG] Viewer {user} joined stream {stream.id}"
-        )
-
-        token = generate_agora_token(
-            channel_name=stream.channel_name,
-            uid=user.id,
-            role=AGORA_ROLE_SUBSCRIBER
-        )
-
-        return Response(
-            {
-                "agora_token": token,
-                "channel_name": stream.channel_name,
-            }
-        )
 
 
 
@@ -262,24 +229,19 @@ class JoinLiveStreamView(APIView):
         user = request.user
 
         try:
-            stream = LiveStream.objects.get(
-                id=stream_id,
-                is_live=True
-            )
+            stream = LiveStream.objects.get(id=stream_id, is_live=True)
         except LiveStream.DoesNotExist:
             return Response(
                 {"detail": "Stream not available"},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Prevent streamer from joining as viewer
         if stream.streamer == user:
             return Response(
                 {"detail": "Streamer cannot join own stream"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Prevent duplicate sessions
         LiveViewSession.objects.filter(
             stream=stream,
             viewer=user,
@@ -294,11 +256,18 @@ class JoinLiveStreamView(APIView):
         stream.total_views += 1
         stream.save(update_fields=["total_views"])
 
-        token = generate_agora_token(
-            channel_name=stream.channel_name,
-            uid=user.id,
-            role=AGORA_ROLE_SUBSCRIBER
-        )
+        try:
+            token = generate_agora_token(
+                channel_name=stream.channel_name,
+                uid=user.id,
+                role=AGORA_ROLE_SUBSCRIBER
+            )
+        except Exception as e:
+            print("[AGORA ERROR]", str(e))
+            return Response(
+                {"detail": "Token generation failed"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(
             {
@@ -309,6 +278,7 @@ class JoinLiveStreamView(APIView):
             },
             status=status.HTTP_200_OK
         )
+
 
 class ActiveLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
