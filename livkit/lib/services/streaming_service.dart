@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class StreamingService {
-  static const String baseUrl = "http://127.0.0.1:8000/api/streaming";
+  static const String baseUrl = "https://livkit.onrender.com/api/streaming";
 
   final String accessToken;
 
