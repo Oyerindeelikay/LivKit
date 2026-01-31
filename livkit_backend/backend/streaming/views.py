@@ -103,7 +103,7 @@ class LeaveLiveStreamView(APIView):
                 status=status.HTTP_200_OK
             )
 
-        pay_per_minute = Decimal("0.10")
+        pay_per_minute = Decimal(str(random.uniform(0.05, 0.20)))
         earnings = Decimal(minutes) * pay_per_minute
 
         session.earnings_generated = earnings
@@ -206,8 +206,8 @@ class EndLiveStreamView(APIView):
             session.minutes_watched = minutes
 
             if minutes >= MIN_PAYABLE_MINUTES:
-                pay_per_minute = random.uniform(0.05, 0.20)
-                earnings = minutes * pay_per_minute
+                pay_per_minute = Decimal(str(random.uniform(0.05, 0.20)))
+                earnings = Decimal(minutes) * pay_per_minute
 
                 session.earnings_generated = earnings
                 stream.total_earnings = (stream.total_earnings or 0) + earnings
