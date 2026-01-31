@@ -7,6 +7,12 @@ class LiveStreamSerializer(serializers.ModelSerializer):
         source="streamer.username",
         read_only=True
     )
+    total_earnings = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
 
     class Meta:
         model = LiveStream
@@ -19,3 +25,4 @@ class LiveStreamSerializer(serializers.ModelSerializer):
             "total_earnings",
             "started_at",
         ]
+
