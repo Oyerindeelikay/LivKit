@@ -23,41 +23,70 @@ AGORA_ROLE_PUBLISHER = 1
 AGORA_ROLE_SUBSCRIBER = 2
 
 
+from django.db import IntegrityError
+from django.db.utils import DataError
+import traceback
+
 class CreateLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
-        print("[DEBUG] Create stream requested by:", user.id)
-
-        channel_name = f"live_{user.id}_{int(timezone.now().timestamp())}"
-
-        stream = LiveStream.objects.create(
-            streamer=user,
-            channel_name=channel_name,
-            is_live=True,
-            started_at=timezone.now()
-        )
+        print("[DEBUG] STEP 1: request entered, user =", user.id)
 
         try:
+            channel_name = f"live_{user.id}_{int(timezone.now().timestamp())}"
+            print("[DEBUG] STEP 2: channel_name =", channel_name)
+
+            stream = LiveStream.objects.create(
+                streamer=user,
+                channel_name=channel_name,
+                is_live=True,
+                started_at=timezone.now()
+            )
+            print("[DEBUG] STEP 3: stream created, id =", stream.id)
+
+        except IntegrityError as e:
+            print("[DB ERROR] IntegrityError:", e)
+            traceback.print_exc()
+            return Response({"detail": "DB integrity error"}, status=500)
+
+        except DataError as e:
+            print("[DB ERROR] DataError:", e)
+            traceback.print_exc()
+            return Response({"detail": "DB data error"}, status=500)
+
+        except Exception as e:
+            print("[UNKNOWN ERROR] during stream create:", e)
+            traceback.print_exc()
+            return Response({"detail": "Unknown create error"}, status=500)
+
+        try:
+            print("[DEBUG] STEP 4: generating Agora token")
             token = generate_agora_token(
                 channel_name=channel_name,
                 uid=0,
                 role=AGORA_ROLE_PUBLISHER
             )
+            print("[DEBUG] STEP 5: Agora token OK")
+
         except Exception as e:
-            print("[AGORA ERROR]", str(e))
+            print("[AGORA ERROR]", e)
+            traceback.print_exc()
             stream.delete()
-            return Response(
-                {"detail": "Agora token error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"detail": "Agora token error"}, status=500)
 
         try:
+            print("[DEBUG] STEP 6: serializing stream")
             stream_data = LiveStreamSerializer(stream).data
+            print("[DEBUG] STEP 7: serialization OK")
+
         except Exception as e:
             print("[SERIALIZER ERROR]", e)
-            raise
+            traceback.print_exc()
+            return Response({"detail": "Serialization error"}, status=500)
+
+        print("[DEBUG] STEP 8: returning response")
 
         return Response(
             {
@@ -65,9 +94,8 @@ class CreateLiveStreamView(APIView):
                 "agora_token": token,
                 "channel_name": channel_name,
             },
-            status=status.HTTP_201_CREATED
+            status=201
         )
-
 
 
 
@@ -293,6 +321,19 @@ class ActiveLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        active_streams = LiveStream.objects.filter(is_live=True).order_by("-started_at")
-        serializer = LiveStreamSerializer(active_streams, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        print("[DEBUG] ACTIVE: fetching streams")
+
+        try:
+            qs = LiveStream.objects.filter(is_live=True)
+            print("[DEBUG] ACTIVE: queryset OK, count =", qs.count())
+
+            data = LiveStreamSerializer(qs, many=True).data
+            print("[DEBUG] ACTIVE: serialization OK")
+
+            return Response(data, status=200)
+
+        except Exception as e:
+            print("[ACTIVE ERROR]", e)
+            import traceback
+            traceback.print_exc()
+            return Response({"detail": "Active stream error"}, status=500)
