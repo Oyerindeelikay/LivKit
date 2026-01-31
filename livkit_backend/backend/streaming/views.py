@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-
+from decimal import Decimal
 from agora_token_builder import RtcTokenBuilder
 
 from .models import LiveStream, LiveViewSession
@@ -103,8 +103,8 @@ class LeaveLiveStreamView(APIView):
                 status=status.HTTP_200_OK
             )
 
-        pay_per_minute = random.uniform(0.05, 0.20)
-        earnings = minutes * pay_per_minute
+        pay_per_minute = Decimal("0.10")
+        earnings = Decimal(minutes) * pay_per_minute
 
         session.earnings_generated = earnings
         session.save(update_fields=[
