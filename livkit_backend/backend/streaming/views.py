@@ -53,14 +53,21 @@ class CreateLiveStreamView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+        try:
+            stream_data = LiveStreamSerializer(stream).data
+        except Exception as e:
+            print("[SERIALIZER ERROR]", e)
+            raise
+
         return Response(
             {
-                "stream": LiveStreamSerializer(stream).data,
+                "stream": stream_data,
                 "agora_token": token,
                 "channel_name": channel_name,
             },
             status=status.HTTP_201_CREATED
         )
+
 
 
 
@@ -106,7 +113,8 @@ class LeaveLiveStreamView(APIView):
         ])
 
         stream = session.stream
-        stream.total_earnings += earnings
+        stream.total_earnings = (stream.total_earnings or 0) + earnings
+
         stream.save(update_fields=["total_earnings"])
 
         return Response(
@@ -202,7 +210,8 @@ class EndLiveStreamView(APIView):
                 earnings = minutes * pay_per_minute
 
                 session.earnings_generated = earnings
-                stream.total_earnings += earnings
+                stream.total_earnings = (stream.total_earnings or 0) + earnings
+
 
             session.save()
 
