@@ -1,9 +1,11 @@
 from rest_framework import serializers
+from django.utils import timezone
 from .models import LiveStream
 
 
 class LiveStreamSerializer(serializers.ModelSerializer):
     streamer_identifier = serializers.SerializerMethodField()
+    feed_type = serializers.SerializerMethodField()
 
     class Meta:
         model = LiveStream
@@ -12,21 +14,30 @@ class LiveStreamSerializer(serializers.ModelSerializer):
             "channel_name",
             "streamer_identifier",
             "is_live",
+            "started_at",
+            "ended_at",
             "total_views",
             "total_earnings",
-            "started_at",
+            "feed_type",
         ]
 
     def get_streamer_identifier(self, obj):
-        """
-        Safely return an identifier for the streamer.
-        Works with custom user models.
-        """
         streamer = obj.streamer
 
-        # Prefer email if it exists
         if hasattr(streamer, "email") and streamer.email:
             return streamer.email
 
-        # Fallback to user ID (always exists)
         return str(streamer.id)
+
+    def get_feed_type(self, obj):
+        """
+        Explicit feed classification.
+        Frontend MUST NOT guess.
+        """
+        if obj.is_live:
+            return "live"
+
+        if obj.ended_at and obj.is_in_grace_period:
+            return "grace"
+
+        return "expired"
