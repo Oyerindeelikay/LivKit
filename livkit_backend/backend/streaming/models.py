@@ -17,9 +17,11 @@ class LiveStream(models.Model):
 
     streamer = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
         related_name="live_streams"
     )
+
 
     channel_name = models.CharField(max_length=255, unique=True)
 
