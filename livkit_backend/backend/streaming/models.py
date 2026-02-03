@@ -38,6 +38,12 @@ class LiveStream(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @property
+    def is_in_grace_period(self):
+        if not self.ended_at:
+            return False
+        return timezone.now() <= self.ended_at + timezone.timedelta(minutes=20)
+
     def __str__(self):
         return f"{self.channel_name} ({self.streamer})"
 
@@ -88,3 +94,8 @@ class LiveViewSession(models.Model):
 
         self.save()
 
+class FallbackVideo(models.Model):
+    title = models.CharField(max_length=255)
+    video_url = models.URLField()
+    weight = models.IntegerField(default=1)
+    is_active = models.BooleanField(default=True)
