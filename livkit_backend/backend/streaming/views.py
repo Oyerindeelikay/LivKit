@@ -10,6 +10,9 @@ from agora_token_builder import RtcTokenBuilder
 from .models import LiveStream, LiveViewSession
 from .serializers import LiveStreamSerializer
 from .agora import generate_agora_token
+from django.db.models import Q
+from .models import FallbackVideo
+
 
 MIN_PAYABLE_MINUTES = 2
 
@@ -23,70 +26,41 @@ AGORA_ROLE_PUBLISHER = 1
 AGORA_ROLE_SUBSCRIBER = 2
 
 
-from django.db import IntegrityError
-from django.db.utils import DataError
-import traceback
-
 class CreateLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
-        print("[DEBUG] STEP 1: request entered, user =", user.id)
+        print("[DEBUG] Create stream requested by:", user.id)
+
+        channel_name = f"live_{user.id}_{int(timezone.now().timestamp())}"
+
+        stream = LiveStream.objects.create(
+            streamer=user,
+            channel_name=channel_name,
+            is_live=True,
+            started_at=timezone.now()
+        )
 
         try:
-            channel_name = f"live_{user.id}_{int(timezone.now().timestamp())}"
-            print("[DEBUG] STEP 2: channel_name =", channel_name)
-
-            stream = LiveStream.objects.create(
-                streamer=user,
-                channel_name=channel_name,
-                is_live=True,
-                started_at=timezone.now()
-            )
-            print("[DEBUG] STEP 3: stream created, id =", stream.id)
-
-        except IntegrityError as e:
-            print("[DB ERROR] IntegrityError:", e)
-            traceback.print_exc()
-            return Response({"detail": "DB integrity error"}, status=500)
-
-        except DataError as e:
-            print("[DB ERROR] DataError:", e)
-            traceback.print_exc()
-            return Response({"detail": "DB data error"}, status=500)
-
-        except Exception as e:
-            print("[UNKNOWN ERROR] during stream create:", e)
-            traceback.print_exc()
-            return Response({"detail": "Unknown create error"}, status=500)
-
-        try:
-            print("[DEBUG] STEP 4: generating Agora token")
             token = generate_agora_token(
                 channel_name=channel_name,
                 uid=0,
                 role=AGORA_ROLE_PUBLISHER
             )
-            print("[DEBUG] STEP 5: Agora token OK")
-
         except Exception as e:
-            print("[AGORA ERROR]", e)
-            traceback.print_exc()
+            print("[AGORA ERROR]", str(e))
             stream.delete()
-            return Response({"detail": "Agora token error"}, status=500)
+            return Response(
+                {"detail": "Agora token error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         try:
-            print("[DEBUG] STEP 6: serializing stream")
             stream_data = LiveStreamSerializer(stream).data
-            print("[DEBUG] STEP 7: serialization OK")
-
         except Exception as e:
             print("[SERIALIZER ERROR]", e)
-            traceback.print_exc()
-            return Response({"detail": "Serialization error"}, status=500)
-
-        print("[DEBUG] STEP 8: returning response")
+            raise
 
         return Response(
             {
@@ -94,8 +68,9 @@ class CreateLiveStreamView(APIView):
                 "agora_token": token,
                 "channel_name": channel_name,
             },
-            status=201
+            status=status.HTTP_201_CREATED
         )
+
 
 
 
@@ -321,19 +296,70 @@ class ActiveLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        print("[DEBUG] ACTIVE: fetching streams")
+        active_streams = LiveStream.objects.filter(is_live=True).order_by("-started_at")
+        serializer = LiveStreamSerializer(active_streams, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        try:
-            qs = LiveStream.objects.filter(is_live=True)
-            print("[DEBUG] ACTIVE: queryset OK, count =", qs.count())
 
-            data = LiveStreamSerializer(qs, many=True).data
-            print("[DEBUG] ACTIVE: serialization OK")
+class LiveFeedView(APIView):
+    permission_classes = [IsAuthenticated]
 
-            return Response(data, status=200)
+    def get(self, request):
+        now = timezone.now()
+        grace_cutoff = now - timezone.timedelta(minutes=20)
 
-        except Exception as e:
-            print("[ACTIVE ERROR]", e)
-            import traceback
-            traceback.print_exc()
-            return Response({"detail": "Active stream error"}, status=500)
+        # 1️⃣ Live streams
+        live_streams = LiveStream.objects.filter(
+            is_live=True
+        )
+
+        print(f"[FEED] Live streams count: {live_streams.count()}")
+
+        # 2️⃣ Recently ended (grace period)
+        grace_streams = LiveStream.objects.filter(
+            is_live=False,
+            ended_at__isnull=False,
+            ended_at__gte=grace_cutoff
+        )
+
+
+        print(f"[FEED] Grace streams count: {grace_streams.count()}")
+
+        # Combine
+        streams = list(live_streams) + list(grace_streams)
+
+        # 3️⃣ Rank score (VERY SIMPLE v1)
+        def score(stream):
+            base = stream.total_views * 0.4
+            freshness = (
+                (now - stream.started_at).total_seconds() / 60
+                if stream.started_at else 0
+            )
+            randomness = random.uniform(0, 10)
+            return base + max(0, 30 - freshness) + randomness
+
+        streams.sort(key=score, reverse=True)
+
+        # 4️⃣ Shuffle slightly to avoid predictability
+        random.shuffle(streams)
+
+        serialized_streams = LiveStreamSerializer(
+            streams, many=True
+        ).data
+
+        fallback_videos = [
+            {
+                "type": "fallback",
+                "title": video.title,
+                "video_url": video.video_url,
+            }
+            for video in FallbackVideo.objects.filter(is_active=True)
+        ]
+
+        return Response(
+            {
+                "feed": serialized_streams,
+                "fallbacks": fallback_videos,
+            },
+            status=status.HTTP_200_OK
+        )
