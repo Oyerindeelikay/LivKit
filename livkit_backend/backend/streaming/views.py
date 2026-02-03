@@ -308,45 +308,68 @@ class LiveFeedView(APIView):
         now = timezone.now()
         grace_cutoff = now - timezone.timedelta(minutes=20)
 
-        # 1️⃣ Live streams
-        live_streams = LiveStream.objects.filter(
-            is_live=True
-        )
+        print("\n========== FEED REQUEST ==========")
 
+        # 1️⃣ Live streams
+        live_streams = LiveStream.objects.filter(is_live=True)
         print(f"[FEED] Live streams count: {live_streams.count()}")
 
-        # 2️⃣ Recently ended (grace period)
+        # 2️⃣ Grace streams
         grace_streams = LiveStream.objects.filter(
             is_live=False,
             ended_at__isnull=False,
             ended_at__gte=grace_cutoff
         )
-
-
         print(f"[FEED] Grace streams count: {grace_streams.count()}")
 
         # Combine
         streams = list(live_streams) + list(grace_streams)
 
-        # 3️⃣ Rank score (VERY SIMPLE v1)
+        # 🔎 DEBUG every stream before ranking
+        for s in streams:
+            print(
+                "[FEED DEBUG]",
+                "id=", s.id,
+                "started_at=", s.started_at,
+                "ended_at=", s.ended_at,
+                "is_live=", s.is_live,
+                "views=", s.total_views,
+            )
+
+        # 3️⃣ Safe ranking function (NO CRASH POSSIBLE)
         def score(stream):
             base = stream.total_views * 0.4
-            freshness = (
-                (now - stream.started_at).total_seconds() / 60
-                if stream.started_at else 0
-            )
-            randomness = random.uniform(0, 10)
-            return base + max(0, 30 - freshness) + randomness
 
+            if stream.started_at:
+                freshness = (now - stream.started_at).total_seconds() / 60
+            else:
+                # Treat missing started_at as very old stream
+                freshness = 9999
+
+            randomness = random.uniform(0, 10)
+            final_score = base + max(0, 30 - freshness) + randomness
+
+            print(
+                f"[SCORE] stream={stream.id} "
+                f"base={base} freshness={freshness:.2f} "
+                f"score={final_score:.2f}"
+            )
+
+            return final_score
+
+        # Sort by score (DO NOT SHUFFLE AFTER THIS)
         streams.sort(key=score, reverse=True)
 
-        # 4️⃣ Shuffle slightly to avoid predictability
-        random.shuffle(streams)
+        # 4️⃣ Serialize safely
+        try:
+            serialized_streams = LiveStreamSerializer(
+                streams, many=True
+            ).data
+        except Exception as e:
+            print("[FEED SERIALIZER ERROR]", str(e))
+            raise
 
-        serialized_streams = LiveStreamSerializer(
-            streams, many=True
-        ).data
-
+        # 5️⃣ Fallback videos
         fallback_videos = [
             {
                 "type": "fallback",
@@ -355,6 +378,9 @@ class LiveFeedView(APIView):
             }
             for video in FallbackVideo.objects.filter(is_active=True)
         ]
+
+        print(f"[FEED] Fallback videos count: {len(fallback_videos)}")
+        print("========== END FEED ==========\n")
 
         return Response(
             {
