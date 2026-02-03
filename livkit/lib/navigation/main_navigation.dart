@@ -112,11 +112,10 @@ class _MainNavigationState extends State<MainNavigation> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => ViewerPage(
-                    streamId: stream["id"],
-                    channelName: stream["channel_name"],
-                    agoraToken: stream["agora_token"],
+                    streamId: stream["id"].toString(),
                     accessToken: _userToken!,
-                    title: stream["title"] ?? "Live Now",
+                    title: stream["title"] ?? "Live Stream",
+                    feedType: "live", // fetchActiveStream is always live
                   ),
                 ),
               );
@@ -124,6 +123,7 @@ class _MainNavigationState extends State<MainNavigation> {
             child: const Text("Watch Live Stream"),
           ),
         );
+
       },
     );
   }
@@ -137,7 +137,7 @@ class _MainNavigationState extends State<MainNavigation> {
     }
 
     final List<Widget> _pages = [
-      const HomePage(),
+      HomePage(accessToken: _userToken!),
       _buildLivePage(), // Viewer discovery
       const SizedBox(), // Go Live handled manually
       _buildChatPage(),
