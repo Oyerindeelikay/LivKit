@@ -106,4 +106,22 @@ class StreamingService {
   }
 
 
+
+
+  /// HOME FEED (Live + Grace + Fallback)
+  Future<Map<String, dynamic>> fetchHomeFeed() async {
+    final response = await http.get(
+      Uri.parse("$baseUrl/feed/"),
+      headers: _headers,
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception("Failed to load home feed");
+    }
+
+    return jsonDecode(response.body);
+  }
+
+
+
 }
