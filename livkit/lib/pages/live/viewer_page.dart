@@ -1,26 +1,22 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '../../services/streaming_service.dart';
 import '../../widgets/live_action.dart';
 import '../../widgets/tiktok_comments.dart';
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import '../../widgets/tiktok_comments.dart';
-import '../../services/streaming_service.dart';
 
 class ViewerPage extends StatefulWidget {
   final String streamId;
-  final String channelName;
-  final String agoraToken;
   final String accessToken;
   final String title;
+  final String feedType; // live | grace
 
   const ViewerPage({
     super.key,
     required this.streamId,
-    required this.channelName,
-    required this.agoraToken,
     required this.accessToken,
-    this.title = "Live Now",
+    required this.title,
+    required this.feedType,
   });
 
   @override
@@ -28,230 +24,237 @@ class ViewerPage extends StatefulWidget {
 }
 
 class _ViewerPageState extends State<ViewerPage>
-    with SingleTickerProviderStateMixin {
-  late final RtcEngine _engine;
-  bool _isWatching = false;
-
+    with WidgetsBindingObserver {
   final TextEditingController _commentController = TextEditingController();
-  final TikTokCommentsController _commentsController =
+  final TikTokCommentsController commentsController =
       TikTokCommentsController();
 
-  late final AnimationController _animController;
-  late final Animation<double> _fadeScale;
+  late final StreamingService _streamingService;
 
   Timer? _heartbeatTimer;
+  bool _joined = false;
+
+  String? _channelName;
+  String? _agoraToken;
+  int _heartbeatInterval = 10;
 
   @override
   void initState() {
     super.initState();
-    _setupAnimations();
-    _initAgoraAndJoin();
+    WidgetsBinding.instance.addObserver(this);
+
+    _streamingService =
+        StreamingService(accessToken: widget.accessToken);
+
+    // ONLY join if this is a live stream
+    if (widget.feedType == "live") {
+      _joinStream();
+    }
   }
 
-  void _setupAnimations() {
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 450),
-    );
+  /// 🔌 JOIN LIVE STREAM
+  Future<void> _joinStream() async {
+    try {
+      final data = await _streamingService.joinLiveStream(
+        streamId: widget.streamId,
+      );
 
-    _fadeScale =
-        CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic);
+      if (!mounted) return;
 
-    _animController.forward();
+      setState(() {
+        _channelName = data["channel_name"];
+        _agoraToken = data["agora_token"];
+        _heartbeatInterval = data["heartbeat_interval"] ?? 10;
+        _joined = true;
+      });
+
+      _startHeartbeat();
+    } catch (_) {
+      _showErrorAndExit("Failed to join stream");
+    }
   }
 
-  Future<void> _initAgoraAndJoin() async {
-    _engine = createAgoraRtcEngine();
-
-    await _engine.initialize(
-      const RtcEngineContext(
-        appId: String.fromEnvironment('AGORA_APP_ID'),
-        channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
-      ),
-    );
-
-    await _engine.enableVideo();
-
-    await _engine.setClientRole(
-      role: ClientRoleType.clientRoleAudience, // Viewer mode
-    );
-
-    await _engine.joinChannel(
-      token: widget.agoraToken,
-      channelId: widget.channelName,
-      uid: 0,
-      options: const ChannelMediaOptions(),
-    );
-
-    // Start heartbeat
-    _startHeartbeat();
-
-    setState(() => _isWatching = true);
-  }
-
+  /// ❤️ HEARTBEAT
   void _startHeartbeat() {
-    final streamingService = StreamingService(accessToken: widget.accessToken);
+    _heartbeatTimer?.cancel();
 
-    _heartbeatTimer =
-        Timer.periodic(const Duration(seconds: 30), (_) async {
-      try {
-        await streamingService.sendHeartbeat(streamId: widget.streamId);
-      } catch (e) {
-        print("[HEARTBEAT ERROR]: $e");
-      }
-    });
+    _heartbeatTimer = Timer.periodic(
+      Duration(seconds: _heartbeatInterval),
+      (_) async {
+        try {
+          await _streamingService.sendHeartbeat(
+            streamId: widget.streamId,
+          );
+        } catch (_) {
+          _showErrorAndExit("Connection lost");
+        }
+      },
+    );
   }
 
+  /// 🚪 LEAVE STREAM
   Future<void> _leaveStream() async {
-    final streamingService = StreamingService(accessToken: widget.accessToken);
+    if (!_joined) return;
+
+    _heartbeatTimer?.cancel();
 
     try {
-      _heartbeatTimer?.cancel();
-      await _engine.leaveChannel();
-      await _engine.release();
-      await streamingService.leaveLiveStream(streamId: widget.streamId);
+      await _streamingService.leaveLiveStream(
+        streamId: widget.streamId,
+      );
     } catch (_) {}
+  }
 
-    if (mounted) Navigator.pop(context);
+  /// 🛑 HANDLE BACKGROUND / APP CLOSE
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _leaveStream();
+    }
+  }
+
+  void _showErrorAndExit(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+
+    Navigator.pop(context);
   }
 
   void _sendComment() {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
-    _commentsController.addComment(text);
+
+    commentsController.addComment(text);
     _commentController.clear();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
+    _leaveStream();
     _commentController.dispose();
-    _animController.dispose();
-    _engine.release();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final isGrace = widget.feedType == "grace";
+
     return Scaffold(
       backgroundColor: Colors.black,
-      body: FadeTransition(
-        opacity: _fadeScale,
-        child: ScaleTransition(
-          scale: Tween(begin: 0.97, end: 1.0).animate(_fadeScale),
-          child: Stack(
-            children: [
-              // 🎥 LIVE VIDEO
-              AgoraVideoView(
-                controller: VideoViewController(
-                  rtcEngine: _engine,
-                  canvas: const VideoCanvas(uid: 0),
-                ),
+      body: Stack(
+        children: [
+          /// 🎥 VIDEO PLACEHOLDER (Agora mounts here next step)
+          Container(
+            alignment: Alignment.center,
+            color: Colors.black,
+            child: Text(
+              isGrace ? "STREAM ENDED" : "LIVE STREAM",
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 20,
               ),
-
-              // 🔝 TOP INFO
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 12,
-                left: 15,
-                right: 15,
-                child: Row(
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.title,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold),
-                        ),
-                        const Text(
-                          "LIVE",
-                          style: TextStyle(
-                              color: Colors.redAccent, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: _leaveStream,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          "LEAVE",
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // 🎯 RIGHT ACTIONS (VIEWER)
-              Positioned(
-                right: 10,
-                bottom: 160,
-                child: Column(
-                  children: const[
-                    LiveAction(icon: Icons.attach_money, label: "Sub"),
-                    SizedBox(height: 12),
-                    LiveAction(icon: Icons.card_giftcard, label: "Gift"),
-                    SizedBox(height: 12),
-                    LiveAction(icon: Icons.person_add, label: "Join"),
-                    SizedBox(height: 12),
-                    LiveAction(icon: Icons.share, label: "Share"),
-                  ],
-                ),
-
-              ),
-
-              // 💬 COMMENTS
-              TikTokComments(controller: _commentsController),
-
-              // ✍️ COMMENT INPUT
-              Positioned(
-                bottom: 40,
-                left: 10,
-                right: 10,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _commentController,
-                        style: const TextStyle(color: Colors.white),
-                        onSubmitted: (_) => _sendComment(),
-                        decoration: InputDecoration(
-                          hintText: "Add a comment...",
-                          hintStyle:
-                              const TextStyle(color: Colors.white54),
-                          filled: true,
-                          fillColor: Colors.white12,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 12),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(25),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: _sendComment,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+
+          /// 👤 TOP INFO
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 15,
+            child: Row(
+              children: [
+                const CircleAvatar(radius: 18),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      isGrace ? "Ended" : "Live",
+                      style: TextStyle(
+                        color: isGrace
+                            ? Colors.grey
+                            : Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          /// 🎯 ACTIONS (disabled for grace)
+          if (!isGrace)
+            Positioned(
+              right: 10,
+              bottom: 160,
+              child: Column(
+                children: const [
+                  LiveAction(icon: Icons.attach_money, label: "Sub"),
+                  SizedBox(height: 12),
+                  LiveAction(icon: Icons.card_giftcard, label: "Gift"),
+                  SizedBox(height: 12),
+                  LiveAction(icon: Icons.person_add, label: "Follow"),
+                  SizedBox(height: 12),
+                  LiveAction(icon: Icons.share, label: "Share"),
+                ],
+              ),
+            ),
+
+          /// 💬 COMMENTS
+          TikTokComments(controller: commentsController),
+
+          /// ✍️ COMMENT INPUT (only for live)
+          if (!isGrace)
+            Positioned(
+              bottom: 40,
+              left: 10,
+              right: 10,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _commentController,
+                      style: const TextStyle(color: Colors.white),
+                      onSubmitted: (_) => _sendComment(),
+                      decoration: InputDecoration(
+                        hintText: "Add a comment...",
+                        hintStyle: const TextStyle(
+                            color: Colors.white54),
+                        filled: true,
+                        fillColor: Colors.white12,
+                        contentPadding:
+                            const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius:
+                              BorderRadius.circular(25),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.send,
+                        color: Colors.white),
+                    onPressed: _sendComment,
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
