@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/streaming_service.dart';
 import '../../models/feed_item.dart';
 import '../live/viewer_page.dart';
-import '../video/fallback_video_page.dart';
+import '../live/feed_video.dart';
 
 class HomePage extends StatefulWidget {
   final String accessToken;
@@ -34,15 +34,18 @@ class _HomePageState extends State<HomePage> {
 
     final List<FeedItem> items = [];
 
-    for (final stream in data["feed"]) {
-      items.add(FeedItem.fromStream(stream));
+    if (data["feed"] != null) {
+      for (final stream in data["feed"]) {
+        items.add(FeedItem.fromStream(stream));
+      }
     }
 
-    for (final video in data["fallbacks"]) {
-      items.add(FeedItem.fromFallback(video));
+    if (data["fallbacks"] != null) {
+      for (final video in data["fallbacks"]) {
+        items.add(FeedItem.fromFallback(video));
+      }
     }
 
-    items.shuffle(); // 🔀 viewer-specific randomness
     return items;
   }
 
@@ -53,6 +56,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onItemTap(FeedItem item) {
+    // Navigate ONLY for live or grace streams
     if (item.type == "live" || item.type == "grace") {
       Navigator.push(
         context,
@@ -60,22 +64,15 @@ class _HomePageState extends State<HomePage> {
           builder: (_) => ViewerPage(
             streamId: item.streamId!,
             accessToken: widget.accessToken,
-            title: item.streamer ?? "Stream",
-            feedType: item.type, // 🔥 IMPORTANT
-          ),
-        ),
-      );
-    }else if (item.type == "fallback") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => FallbackVideoPage(
-            title: item.channelName ?? "Video",
-            videoUrl: item.videoUrl!,
+            title: item.streamer ?? "Live Stream",
+            feedType: item.type,
           ),
         ),
       );
     }
+
+    // ❌ NO navigation for fallback videos
+    // They autoplay inline like TikTok
   }
 
   @override
@@ -136,33 +133,43 @@ class _FeedTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        Container(
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: Text(
-            item.channelName ?? "Video",
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.center,
+        /// 🎥 VIDEO CONTENT
+        Positioned.fill(
+          child: FeedVideo(
+            type: item.type,
+            videoUrl: item.videoUrl,
           ),
         ),
 
-        if (item.type == "live")
-          const Positioned(
-            top: 60,
-            left: 20,
-            child: _LiveBadge(),
+        /// 👤 TOP OVERLAY
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 12,
+          left: 15,
+          child: Row(
+            children: [
+              const CircleAvatar(
+                radius: 18,
+                backgroundColor: Colors.grey,
+                child: Icon(Icons.person, color: Colors.white),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                item.streamer ?? "Streamer",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
+        ),
+
+        /// 🔴 BADGES
+        if (item.type == "live")
+          const Positioned(top: 60, left: 20, child: _LiveBadge()),
 
         if (item.type == "grace")
-          const Positioned(
-            top: 60,
-            left: 20,
-            child: _GraceBadge(),
-          ),
+          const Positioned(top: 60, left: 20, child: _GraceBadge()),
       ],
     );
   }
@@ -190,7 +197,10 @@ class _Badge extends StatelessWidget {
   final String label;
   final Color color;
 
-  const _Badge({required this.label, required this.color});
+  const _Badge({
+    required this.label,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
