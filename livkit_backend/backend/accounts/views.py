@@ -50,6 +50,34 @@ from .serializers import ForgotPasswordSerializer, ResetPasswordSerializer
 
 User = get_user_model()
 
+
+
+
+
+
+
+
+
+
+class CreateAdminOnceView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        email = "livkitadmin@admin.com"
+        password = "livkitadmin@135"
+
+        if User.objects.filter(email=email).exists():
+            return Response({"detail": "Admin already exists"})
+
+        User.objects.create_superuser(
+            email=email,
+            password=password
+        )
+
+        return Response({"detail": "Superuser created"})
+
+
+
 @api_view(["POST"])
 
 @permission_classes([AllowAny])
