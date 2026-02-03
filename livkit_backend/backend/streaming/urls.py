@@ -6,6 +6,8 @@ from .views import (
     StreamHeartbeatView,
     EndLiveStreamView,
     ActiveLiveStreamView,
+
+    LiveFeedView,
 )
 
 urlpatterns = [
@@ -21,6 +23,8 @@ urlpatterns = [
         EndLiveStreamView.as_view(),
     ),
     path("active/", ActiveLiveStreamView.as_view(), name="active_live_stream"),
+    path("feed/", LiveFeedView.as_view(), name="live_feed"),
+
 
 
 ]
