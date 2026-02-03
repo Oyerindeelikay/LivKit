@@ -22,12 +22,19 @@ class LiveStreamSerializer(serializers.ModelSerializer):
         ]
 
     def get_streamer_identifier(self, obj):
-        streamer = obj.streamer
+        try:
+            streamer = obj.streamer
+        except Exception:
+            return "unknown_user"
+
+        if not streamer:
+            return "unknown_user"
 
         if hasattr(streamer, "email") and streamer.email:
             return streamer.email
 
         return str(streamer.id)
+
 
     def get_feed_type(self, obj):
         """
