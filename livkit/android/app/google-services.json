@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "557613793990",
+    "project_id": "livkit-6f559",
+    "storage_bucket": "livkit-6f559.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:557613793990:android:f47f3e5b541f732b668dc7",
+        "android_client_info": {
+          "package_name": "com.example.livkit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWowvNXuX-DvOwPGCr891Qc-2jtPx_HJw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
