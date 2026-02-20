@@ -14,6 +14,7 @@ class LiveStream(models.Model):
     One streamer, many viewers.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recorded_video_url = models.URLField(null=True, blank=True)
 
     streamer = models.ForeignKey(
         User,
