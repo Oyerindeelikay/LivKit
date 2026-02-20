@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import '../../config/agora_config.dart';
+
 import '../../services/streaming_service.dart';
 import '../../models/feed_item.dart';
 import '../live/viewer_page.dart';
@@ -138,6 +141,8 @@ class _FeedTile extends StatelessWidget {
           child: FeedVideo(
             type: item.type,
             videoUrl: item.videoUrl,
+            channelName: item.channelName,   // needed for live preview
+            agoraToken: item.agoraToken,    // needed for live preview
           ),
         ),
 
