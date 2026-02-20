@@ -12,7 +12,8 @@ from .serializers import LiveStreamSerializer
 from .agora import generate_agora_token
 from django.db.models import Q
 from .models import FallbackVideo
-
+from django.db import transaction
+from django.db.models import F
 
 MIN_PAYABLE_MINUTES = 2
 
@@ -179,50 +180,56 @@ class EndLiveStreamView(APIView):
     def post(self, request, stream_id):
         user = request.user
 
-        try:
-            stream = LiveStream.objects.get(
-                id=stream_id,
-                streamer=user,
-                is_live=True
+        with transaction.atomic():
+
+            try:
+                stream = LiveStream.objects.select_for_update().get(
+                    id=stream_id,
+                    streamer=user,
+                    is_live=True
+                )
+            except LiveStream.DoesNotExist:
+                return Response(
+                    {"detail": "Stream not found or already ended"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # End stream
+            stream.is_live = False
+            stream.ended_at = timezone.now()
+            stream.save(update_fields=["is_live", "ended_at"])
+
+            active_sessions = LiveViewSession.objects.select_for_update().filter(
+                stream=stream,
+                is_active=True
             )
-        except LiveStream.DoesNotExist:
-            return Response(
-                {"detail": "Stream not found or already ended"},
-                status=status.HTTP_404_NOT_FOUND
-            )
 
-        # End stream
-        stream.is_live = False
-        stream.ended_at = timezone.now()
-        stream.save(update_fields=["is_live", "ended_at"])
+            total_earnings = Decimal("0.00")
 
-        # Force end all active viewer sessions
-        active_sessions = LiveViewSession.objects.filter(
-            stream=stream,
-            is_active=True
-        )
+            for session in active_sessions:
 
-        for session in active_sessions:
-            session.force_end(reason="stream_ended")
+                session.force_end(reason="stream_ended")
 
-            minutes = session.active_seconds // 60
-            session.minutes_watched = minutes
+                minutes = session.active_seconds // 60
+                session.minutes_watched = minutes
 
-            if minutes >= MIN_PAYABLE_MINUTES:
-                pay_per_minute = Decimal(str(random.uniform(0.05, 0.20)))
-                earnings = Decimal(minutes) * pay_per_minute
+                earnings = Decimal("0.00")
+
+                if minutes >= MIN_PAYABLE_MINUTES:
+                    pay_per_minute = Decimal(str(random.uniform(0.05, 0.20)))
+                    earnings = Decimal(minutes) * pay_per_minute
 
                 session.earnings_generated = earnings
-                stream.total_earnings = (stream.total_earnings or 0) + earnings
+                session.save(update_fields=["is_active", "ended_at", "minutes_watched", "earnings_generated"])
 
+                total_earnings += earnings
 
-            session.save()
+            # Atomic earnings update
+            stream.total_earnings = F("total_earnings") + total_earnings
+            stream.save(update_fields=["total_earnings"])
+            stream.refresh_from_db()
 
-        stream.save(update_fields=["total_earnings"])
-
-        print(
-            f"[DEBUG] Stream {stream.id} ended by streamer {user}"
-        )
+            print(f"[DEBUG] Stream {stream.id} ended. Earnings: {stream.total_earnings}")
 
         return Response(
             {
@@ -232,7 +239,6 @@ class EndLiveStreamView(APIView):
             },
             status=status.HTTP_200_OK
         )
-
 
 class JoinLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
