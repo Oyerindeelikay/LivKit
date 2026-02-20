@@ -5,6 +5,7 @@ class FeedItem {
   final String? streamer;
   final bool? isLive;
   final String? videoUrl;
+  final String? agoraToken; // ✅ add this
 
   FeedItem({
     required this.type,
@@ -13,6 +14,7 @@ class FeedItem {
     this.streamer,
     this.isLive,
     this.videoUrl,
+    this.agoraToken, // ✅ add this
   });
 
   /// From LiveStreamSerializer
@@ -23,7 +25,8 @@ class FeedItem {
       channelName: json["channel_name"],
       streamer: json["streamer_identifier"],
       isLive: json["is_live"],
-      videoUrl: json["recorded_video_url"],  // ADD THIS
+      videoUrl: json["recorded_video_url"], 
+      agoraToken: json["agora_token"], // ✅ now works
     );
   }
 
