@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import '../../config/agora_config.dart';
 import '../../services/streaming_service.dart';
 import '../../widgets/live_action.dart';
 import '../../widgets/tiktok_comments.dart';
@@ -21,6 +22,7 @@ class ViewerPage extends StatefulWidget {
 
   @override
   State<ViewerPage> createState() => _ViewerPageState();
+
 }
 
 class _ViewerPageState extends State<ViewerPage>
@@ -30,6 +32,9 @@ class _ViewerPageState extends State<ViewerPage>
       TikTokCommentsController();
 
   late final StreamingService _streamingService;
+  late RtcEngine _engine;
+  int? _remoteUid;
+  bool _engineReady = false;
 
   Timer? _heartbeatTimer;
   bool _joined = false;
@@ -52,7 +57,50 @@ class _ViewerPageState extends State<ViewerPage>
     }
   }
 
-  /// 🔌 JOIN LIVE STREAM
+
+  Future<void> _initAgora() async {
+    _engine = createAgoraRtcEngine();
+
+    await _engine.initialize(
+      const RtcEngineContext(
+        appId: AgoraConfig.appId,
+        channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
+      ),
+    );
+
+    await _engine.setClientRole(
+      role: ClientRoleType.clientRoleAudience,
+    );
+
+    _engine.registerEventHandler(
+      RtcEngineEventHandler(
+        onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
+          setState(() {
+            _remoteUid = remoteUid;
+          });
+        },
+        onUserOffline: (RtcConnection connection, int remoteUid,
+            UserOfflineReasonType reason) {
+          setState(() {
+            _remoteUid = null;
+          });
+        },
+      ),
+    );
+
+    await _engine.joinChannel(
+      token: _agoraToken!,
+      channelId: _channelName!,
+      uid: 0,
+      options: const ChannelMediaOptions(),
+    );
+
+    setState(() {
+      _engineReady = true;
+    });
+  }
+
+
   Future<void> _joinStream() async {
     try {
       final data = await _streamingService.joinLiveStream(
@@ -69,6 +117,7 @@ class _ViewerPageState extends State<ViewerPage>
       });
 
       _startHeartbeat();
+      await _initAgora(); // move this inside try
     } catch (_) {
       _showErrorAndExit("Failed to join stream");
     }
@@ -138,6 +187,10 @@ class _ViewerPageState extends State<ViewerPage>
     _heartbeatTimer?.cancel();
     _leaveStream();
     _commentController.dispose();
+    try {
+      _engine.leaveChannel();
+      _engine.release();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -150,17 +203,17 @@ class _ViewerPageState extends State<ViewerPage>
       body: Stack(
         children: [
           /// 🎥 VIDEO PLACEHOLDER (Agora mounts here next step)
-          Container(
-            alignment: Alignment.center,
-            color: Colors.black,
-            child: Text(
-              isGrace ? "STREAM ENDED" : "LIVE STREAM",
-              style: const TextStyle(
-                color: Colors.white54,
-                fontSize: 20,
+          _engineReady && _remoteUid != null
+            ? AgoraVideoView(
+                controller: VideoViewController.remote(
+                  rtcEngine: _engine,
+                  canvas: VideoCanvas(uid: _remoteUid),
+                  connection: RtcConnection(channelId: _channelName),
+                ),
+              )
+            : const Center(
+                child: CircularProgressIndicator(color: Colors.white),
               ),
-            ),
-          ),
 
           /// 👤 TOP INFO
           Positioned(
