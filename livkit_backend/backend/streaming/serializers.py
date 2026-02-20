@@ -19,6 +19,7 @@ class LiveStreamSerializer(serializers.ModelSerializer):
             "total_views",
             "total_earnings",
             "feed_type",
+            "recorded_video_url",
         ]
 
     def get_streamer_identifier(self, obj):
