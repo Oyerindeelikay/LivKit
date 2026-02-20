@@ -18,11 +18,12 @@ class FeedItem {
   /// From LiveStreamSerializer
   factory FeedItem.fromStream(Map<String, dynamic> json) {
     return FeedItem(
-      type: json["feed_type"], // live | grace
+      type: json["feed_type"],
       streamId: json["id"],
       channelName: json["channel_name"],
       streamer: json["streamer_identifier"],
       isLive: json["is_live"],
+      videoUrl: json["recorded_video_url"],  // ADD THIS
     );
   }
 
