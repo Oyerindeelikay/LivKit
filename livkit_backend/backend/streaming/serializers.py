@@ -19,7 +19,6 @@ class LiveStreamSerializer(serializers.ModelSerializer):
             "total_views",
             "total_earnings",
             "feed_type",
-            "recorded_video_url",
         ]
 
     def get_streamer_identifier(self, obj):
@@ -39,13 +38,8 @@ class LiveStreamSerializer(serializers.ModelSerializer):
 
     def get_feed_type(self, obj):
         """
-        Explicit feed classification.
-        Frontend MUST NOT guess.
+        Feed only supports LIVE streams.
         """
         if obj.is_live:
             return "live"
-
-        if obj.ended_at and obj.is_in_grace_period:
-            return "grace"
-
-        return "expired"
+        return "hidden"
