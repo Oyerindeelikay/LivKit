@@ -181,19 +181,28 @@ class _ViewerPageState extends State<ViewerPage>
     _commentController.clear();
   }
 
+  
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
-    _leaveStream();
+
+    if (_joined) {
+      _streamingService.leaveLiveStream(
+        streamId: widget.streamId,
+      );
+    }
+
     _commentController.dispose();
+
     try {
       _engine.leaveChannel();
       _engine.release();
     } catch (_) {}
+
     super.dispose();
   }
-
+  
   @override
   Widget build(BuildContext context) {
     final isGrace = widget.feedType == "grace";
