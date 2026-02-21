@@ -31,10 +31,8 @@ class _FeedVideoState extends State<FeedVideo> {
   void initState() {
     super.initState();
 
-    // GRACE / FALLBACK: initialize video player
-    if ((widget.type == "grace" || widget.type == "fallback") &&
-        widget.videoUrl != null &&
-        widget.videoUrl!.isNotEmpty) {
+    // FALLBACK videos
+    if (widget.type == "fallback" && widget.videoUrl != null && widget.videoUrl!.isNotEmpty) {
       _controller = VideoPlayerController.network(widget.videoUrl!)
         ..initialize().then((_) {
           if (!mounted) return;
@@ -44,10 +42,8 @@ class _FeedVideoState extends State<FeedVideo> {
         });
     }
 
-    // LIVE: initialize Agora mini preview
-    if (widget.type == "live" &&
-        widget.channelName != null &&
-        widget.agoraToken != null) {
+    // LIVE streams
+    if (widget.type == "live") {
       _initAgora();
     }
   }
@@ -60,20 +56,16 @@ class _FeedVideoState extends State<FeedVideo> {
         channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
       ),
     );
+
     await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
 
     _engine!.registerEventHandler(
       RtcEngineEventHandler(
         onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-          setState(() {
-            _remoteUid = remoteUid;
-          });
+          setState(() => _remoteUid = remoteUid);
         },
-        onUserOffline: (RtcConnection connection, int remoteUid,
-            UserOfflineReasonType reason) {
-          setState(() {
-            _remoteUid = null;
-          });
+        onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
+          setState(() => _remoteUid = null);
         },
       ),
     );
@@ -100,7 +92,6 @@ class _FeedVideoState extends State<FeedVideo> {
 
   @override
   Widget build(BuildContext context) {
-    // LIVE: show mini Agora view
     if (widget.type == "live") {
       if (_engineReady && _remoteUid != null) {
         return AgoraVideoView(
@@ -122,7 +113,6 @@ class _FeedVideoState extends State<FeedVideo> {
       }
     }
 
-    // GRACE / FALLBACK: video player
     if (_controller != null && _controller!.value.isInitialized) {
       return SizedBox.expand(
         child: FittedBox(
@@ -136,13 +126,12 @@ class _FeedVideoState extends State<FeedVideo> {
       );
     }
 
-    // No video available
     return Container(
       color: Colors.black,
       alignment: Alignment.center,
-      child: Text(
-        widget.type == "grace" ? "STREAM ENDED" : "LOADING...",
-        style: const TextStyle(color: Colors.white54),
+      child: const Text(
+        "LOADING...",
+        style: TextStyle(color: Colors.white54),
       ),
     );
   }
