@@ -1,11 +1,11 @@
 class FeedItem {
-  final String type; // live | grace | fallback
+  final String type; // live | fallback
   final String? streamId;
   final String? channelName;
   final String? streamer;
   final bool? isLive;
   final String? videoUrl;
-  final String? agoraToken; // ✅ add this
+  final String? agoraToken;
 
   FeedItem({
     required this.type,
@@ -14,23 +14,21 @@ class FeedItem {
     this.streamer,
     this.isLive,
     this.videoUrl,
-    this.agoraToken, // ✅ add this
+    this.agoraToken,
   });
 
-  /// From LiveStreamSerializer
   factory FeedItem.fromStream(Map<String, dynamic> json) {
     return FeedItem(
-      type: json["feed_type"],
+      type: "live", // only live streams remain
       streamId: json["id"],
       channelName: json["channel_name"],
       streamer: json["streamer_identifier"],
       isLive: json["is_live"],
-      videoUrl: json["recorded_video_url"], 
-      agoraToken: json["agora_token"], // ✅ now works
+      videoUrl: json["recorded_video_url"],
+      agoraToken: null,
     );
   }
 
-  /// From FallbackVideo
   factory FeedItem.fromFallback(Map<String, dynamic> json) {
     return FeedItem(
       type: "fallback",
