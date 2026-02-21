@@ -21,11 +21,34 @@ MIN_PAYABLE_MINUTES = 2
 
 HEARTBEAT_INTERVAL = 30  # seconds
 HEARTBEAT_TIMEOUT = 60   # seconds
+STREAM_HEARTBEAT_TIMEOUT = 60  # seconds
 
 
 AGORA_ROLE_PUBLISHER = 1
 AGORA_ROLE_SUBSCRIBER = 2
 
+
+class StreamerHeartbeatView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stream_id):
+        try:
+            stream = LiveStream.objects.get(
+                id=stream_id,
+                streamer=request.user,
+                is_live=True
+            )
+        except LiveStream.DoesNotExist:
+            return Response(
+                {"detail": "Stream not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        stream.last_heartbeat = timezone.now()
+        stream.save(update_fields=["last_heartbeat"])
+
+        return Response({"status": "alive"}, status=200)
+        
 
 class CreateLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
@@ -40,7 +63,8 @@ class CreateLiveStreamView(APIView):
             streamer=user,
             channel_name=channel_name,
             is_live=True,
-            started_at=timezone.now()
+            started_at=timezone.now(),
+            last_heartbeat=timezone.now()
         )
 
         try:
@@ -306,76 +330,22 @@ class ActiveLiveStreamView(APIView):
         serializer = LiveStreamSerializer(active_streams, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-
 class LiveFeedView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        now = timezone.now()
-        grace_cutoff = now - timezone.timedelta(minutes=20)
 
-        print("\n========== FEED REQUEST ==========")
+        # 🔴 ONLY ACTIVE STREAMS
+        live_streams = LiveStream.objects.filter(
+            is_live=True
+        ).order_by("-started_at")
 
-        # 1️⃣ Live streams
-        live_streams = LiveStream.objects.filter(is_live=True)
-        print(f"[FEED] Live streams count: {live_streams.count()}")
+        serialized_streams = LiveStreamSerializer(
+            live_streams,
+            many=True
+        ).data
 
-        # 2️⃣ Grace streams
-        grace_streams = LiveStream.objects.filter(
-            is_live=False,
-            ended_at__isnull=False,
-            ended_at__gte=grace_cutoff
-        )
-        print(f"[FEED] Grace streams count: {grace_streams.count()}")
-
-        # Combine
-        streams = list(live_streams) + list(grace_streams)
-
-        # 🔎 DEBUG every stream before ranking
-        for s in streams:
-            print(
-                "[FEED DEBUG]",
-                "id=", s.id,
-                "started_at=", s.started_at,
-                "ended_at=", s.ended_at,
-                "is_live=", s.is_live,
-                "views=", s.total_views,
-            )
-
-        # 3️⃣ Safe ranking function (NO CRASH POSSIBLE)
-        def score(stream):
-            base = stream.total_views * 0.4
-
-            if stream.started_at:
-                freshness = (now - stream.started_at).total_seconds() / 60
-            else:
-                # Treat missing started_at as very old stream
-                freshness = 9999
-
-            randomness = random.uniform(0, 10)
-            final_score = base + max(0, 30 - freshness) + randomness
-
-            print(
-                f"[SCORE] stream={stream.id} "
-                f"base={base} freshness={freshness:.2f} "
-                f"score={final_score:.2f}"
-            )
-
-            return final_score
-
-        # Sort by score (DO NOT SHUFFLE AFTER THIS)
-        streams.sort(key=score, reverse=True)
-
-        # 4️⃣ Serialize safely
-        try:
-            serialized_streams = LiveStreamSerializer(
-                streams, many=True
-            ).data
-        except Exception as e:
-            print("[FEED SERIALIZER ERROR]", str(e))
-            raise
-
-        # 5️⃣ Fallback videos
+        # 🎬 Default fallback videos
         fallback_videos = [
             {
                 "type": "fallback",
@@ -385,13 +355,10 @@ class LiveFeedView(APIView):
             for video in FallbackVideo.objects.filter(is_active=True)
         ]
 
-        print(f"[FEED] Fallback videos count: {len(fallback_videos)}")
-        print("========== END FEED ==========\n")
+        print(f"[DEBUG] Live streams count: {len(serialized_streams)}")
+        print(f"[DEBUG] Fallback videos count: {len(fallback_videos)}")
 
-        return Response(
-            {
-                "feed": serialized_streams,
-                "fallbacks": fallback_videos,
-            },
-            status=status.HTTP_200_OK
-        )
+        return Response({
+            "live_streams": serialized_streams,
+            "fallbacks": fallback_videos,
+        })
