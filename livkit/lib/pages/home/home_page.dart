@@ -37,8 +37,8 @@ class _HomePageState extends State<HomePage> {
 
     final List<FeedItem> items = [];
 
-    if (data["feed"] != null) {
-      for (final stream in data["feed"]) {
+    if (data["live_streams"] != null) {
+      for (final stream in data["live_streams"]) {
         items.add(FeedItem.fromStream(stream));
       }
     }
@@ -59,8 +59,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onItemTap(FeedItem item) {
-    // Navigate ONLY for live or grace streams
-    if (item.type == "live" || item.type == "grace") {
+    if (item.type == "live") {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -73,9 +72,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     }
-
-    // ❌ NO navigation for fallback videos
-    // They autoplay inline like TikTok
+    // fallback videos: play inline, no navigation
   }
 
   @override
@@ -173,8 +170,6 @@ class _FeedTile extends StatelessWidget {
         if (item.type == "live")
           const Positioned(top: 60, left: 20, child: _LiveBadge()),
 
-        if (item.type == "grace")
-          const Positioned(top: 60, left: 20, child: _GraceBadge()),
       ],
     );
   }
