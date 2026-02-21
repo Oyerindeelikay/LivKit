@@ -143,7 +143,7 @@ class _LiveStreamingPageState extends State<LiveStreamingPage>
 
     if (!widget.isActive) {
       _videoController?.pause();
-    } else {
+    } else if (widget.feedItem.type == "fallback") {
       _videoController?.play();
     }
   }
