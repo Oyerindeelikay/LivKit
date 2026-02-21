@@ -14,7 +14,6 @@ class LiveStream(models.Model):
     One streamer, many viewers.
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    recorded_video_url = models.URLField(null=True, blank=True)
 
     streamer = models.ForeignKey(
         User,
@@ -41,12 +40,7 @@ class LiveStream(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
-    @property
-    def is_in_grace_period(self):
-        if not self.ended_at:
-            return False
-        return timezone.now() <= self.ended_at + timezone.timedelta(minutes=20)
-
+    last_heartbeat = models.DateTimeField(null=True, blank=True)
     def __str__(self):
         return f"{self.channel_name} ({self.streamer})"
 
