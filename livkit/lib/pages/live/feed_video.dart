@@ -42,8 +42,9 @@ class _FeedVideoState extends State<FeedVideo> {
         });
     }
 
-    // LIVE streams
-    if (widget.type == "live") {
+    if (widget.type == "live" &&
+        widget.channelName != null &&
+        widget.agoraToken != null) {
       _initAgora();
     }
   }
@@ -57,7 +58,6 @@ class _FeedVideoState extends State<FeedVideo> {
       ),
     );
 
-    await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
 
     _engine!.registerEventHandler(
       RtcEngineEventHandler(
@@ -69,15 +69,44 @@ class _FeedVideoState extends State<FeedVideo> {
         },
       ),
     );
+    await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
+    await _engine!.enableVideo();
 
     await _engine!.joinChannel(
       token: widget.agoraToken!,
       channelId: widget.channelName!,
       uid: 0,
-      options: const ChannelMediaOptions(),
+      options: const ChannelMediaOptions(
+        autoSubscribeAudio: true,
+        autoSubscribeVideo: true,
+        clientRoleType: ClientRoleType.clientRoleAudience,
+      ),
     );
 
     setState(() => _engineReady = true);
+  }
+
+  @override
+  void didUpdateWidget(covariant FeedVideo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // If it becomes live and engine not started yet
+    if (widget.type == "live" &&
+        oldWidget.type != "live" &&
+        widget.channelName != null &&
+        widget.agoraToken != null &&
+        _engine == null) {
+      _initAgora();
+    }
+
+    // If it becomes fallback, dispose Agora
+    if (widget.type != "live" && oldWidget.type == "live") {
+      _engine?.leaveChannel();
+      _engine?.release();
+      _engine = null;
+      _engineReady = false;
+      _remoteUid = null;
+    }
   }
 
   @override
@@ -87,6 +116,8 @@ class _FeedVideoState extends State<FeedVideo> {
       _engine!.leaveChannel();
       _engine!.release();
     }
+
+    _engineReady = false;
     super.dispose();
   }
 
@@ -94,23 +125,19 @@ class _FeedVideoState extends State<FeedVideo> {
   Widget build(BuildContext context) {
     if (widget.type == "live") {
       if (_engineReady && _remoteUid != null) {
-        return AgoraVideoView(
-          controller: VideoViewController.remote(
-            rtcEngine: _engine!,
-            canvas: VideoCanvas(uid: _remoteUid),
-            connection: RtcConnection(channelId: widget.channelName!),
+        return SizedBox.expand(
+          child: AgoraVideoView(
+            controller: VideoViewController.remote(
+              rtcEngine: _engine!,
+              canvas: VideoCanvas(
+                uid: _remoteUid,
+                renderMode: RenderModeType.renderModeHidden,
+              ),
+              connection: RtcConnection(channelId: widget.channelName!),
+            ),
           ),
         );
-      } else {
-        return Container(
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: const Text(
-            "LIVE",
-            style: TextStyle(color: Colors.redAccent, fontSize: 18),
-          ),
-        );
-      }
+      } 
     }
 
     if (_controller != null && _controller!.value.isInitialized) {
