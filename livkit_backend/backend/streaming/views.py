@@ -310,18 +310,27 @@ class LiveFeedView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        user = request.user
 
-        # 🔴 ONLY ACTIVE STREAMS
         live_streams = LiveStream.objects.filter(
             is_live=True
         ).order_by("-started_at")
 
-        serialized_streams = LiveStreamSerializer(
-            live_streams,
-            many=True
-        ).data
+        live_data = []
 
-        # 🎬 Default fallback videos
+        for stream in live_streams:
+            serialized = LiveStreamSerializer(stream).data
+
+            # 🔥 Generate PREVIEW subscriber token
+            preview_token = generate_agora_token(
+                channel_name=stream.channel_name,
+                uid=0,
+                role=AGORA_ROLE_SUBSCRIBER
+            )
+
+            serialized["agora_token"] = preview_token
+            live_data.append(serialized)
+
         fallback_videos = [
             {
                 "type": "fallback",
@@ -331,11 +340,7 @@ class LiveFeedView(APIView):
             for video in FallbackVideo.objects.filter(is_active=True)
         ]
 
-        print(f"[DEBUG] Live streams count: {len(serialized_streams)}")
-        print(f"[DEBUG] Fallback videos count: {len(fallback_videos)}")
-
         return Response({
-            "live_streams": serialized_streams,
+            "live_streams": live_data,
             "fallbacks": fallback_videos,
         })
-
