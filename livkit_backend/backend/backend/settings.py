@@ -15,7 +15,6 @@ from pathlib import Path
 from datetime import timedelta
 
 import os
-from streaming.celery_schedule import CELERY_BEAT_SCHEDULE
 
 import dj_database_url
 
