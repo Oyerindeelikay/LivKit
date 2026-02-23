@@ -68,6 +68,8 @@ class _ViewerPageState extends State<ViewerPage>
       ),
     );
 
+    await _engine.enableVideo(); // ✅ ADD THIS
+
     await _engine.setClientRole(
       role: ClientRoleType.clientRoleAudience,
     );
@@ -92,7 +94,10 @@ class _ViewerPageState extends State<ViewerPage>
       token: _agoraToken!,
       channelId: _channelName!,
       uid: 0,
-      options: const ChannelMediaOptions(),
+      options: const ChannelMediaOptions(
+        autoSubscribeAudio: true,
+        autoSubscribeVideo: true,
+      ),
     );
 
     setState(() {
@@ -196,8 +201,8 @@ class _ViewerPageState extends State<ViewerPage>
     _commentController.dispose();
 
     try {
-      _engine.leaveChannel();
-      _engine.release();
+      _engine?.leaveChannel();
+      _engine?.release();
     } catch (_) {}
 
     super.dispose();
