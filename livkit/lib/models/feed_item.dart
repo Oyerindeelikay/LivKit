@@ -25,7 +25,7 @@ class FeedItem {
       streamer: json["streamer_identifier"],
       isLive: json["is_live"],
       videoUrl: json["recorded_video_url"],
-      agoraToken: null,
+      agoraToken: json["agora_token"], // 🔥 FIXED
     );
   }
 
