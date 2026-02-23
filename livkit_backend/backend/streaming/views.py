@@ -21,34 +21,11 @@ MIN_PAYABLE_MINUTES = 2
 
 HEARTBEAT_INTERVAL = 30  # seconds
 HEARTBEAT_TIMEOUT = 60   # seconds
-STREAM_HEARTBEAT_TIMEOUT = 60  # seconds
 
 
 AGORA_ROLE_PUBLISHER = 1
 AGORA_ROLE_SUBSCRIBER = 2
 
-
-class StreamerHeartbeatView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, stream_id):
-        try:
-            stream = LiveStream.objects.get(
-                id=stream_id,
-                streamer=request.user,
-                is_live=True
-            )
-        except LiveStream.DoesNotExist:
-            return Response(
-                {"detail": "Stream not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        stream.last_heartbeat = timezone.now()
-        stream.save(update_fields=["last_heartbeat"])
-
-        return Response({"status": "alive"}, status=200)
-        
 
 class CreateLiveStreamView(APIView):
     permission_classes = [IsAuthenticated]
@@ -63,8 +40,7 @@ class CreateLiveStreamView(APIView):
             streamer=user,
             channel_name=channel_name,
             is_live=True,
-            started_at=timezone.now(),
-            last_heartbeat=timezone.now()
+            started_at=timezone.now()
         )
 
         try:
@@ -362,3 +338,4 @@ class LiveFeedView(APIView):
             "live_streams": serialized_streams,
             "fallbacks": fallback_videos,
         })
+
