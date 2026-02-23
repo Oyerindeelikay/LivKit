@@ -23,6 +23,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late StreamingService _streamingService;
   late Future<List<FeedItem>> _feedFuture;
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -105,12 +106,20 @@ class _HomePageState extends State<HomePage> {
             return PageView.builder(
               scrollDirection: Axis.vertical,
               itemCount: feed.length,
+              onPageChanged: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
               itemBuilder: (context, index) {
                 final item = feed[index];
 
                 return GestureDetector(
                   onTap: () => _onItemTap(item),
-                  child: _FeedTile(item: item),
+                  child: _FeedTile(
+                    item: item,
+                    isActive: index == _currentIndex,
+                  ),
                 );
               },
             );
@@ -126,8 +135,12 @@ class _HomePageState extends State<HomePage> {
 /// =======================
 class _FeedTile extends StatelessWidget {
   final FeedItem item;
+  final bool isActive;
 
-  const _FeedTile({required this.item});
+  const _FeedTile({
+    required this.item,
+    required this.isActive,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -136,10 +149,10 @@ class _FeedTile extends StatelessWidget {
         /// 🎥 VIDEO CONTENT
         Positioned.fill(
           child: FeedVideo(
-            type: item.type,
+            type: isActive ? item.type : "fallback",
             videoUrl: item.videoUrl,
-            channelName: item.channelName,   // needed for live preview
-            agoraToken: item.agoraToken,    // needed for live preview
+            channelName: item.channelName,
+            agoraToken: item.agoraToken,
           ),
         ),
 
@@ -174,6 +187,8 @@ class _FeedTile extends StatelessWidget {
     );
   }
 }
+
+
 
 class _LiveBadge extends StatelessWidget {
   const _LiveBadge();
