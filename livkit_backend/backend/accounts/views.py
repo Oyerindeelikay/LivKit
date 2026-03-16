@@ -7,6 +7,8 @@ from .tokens import get_tokens_for_user, create_admin_tokens
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes
 
+from django.contrib.auth.models import User
+from django.http import HttpResponse
 
 from .serializers import MeSerializer
 
@@ -50,8 +52,16 @@ from .serializers import ForgotPasswordSerializer, ResetPasswordSerializer
 
 User = get_user_model()
 
-
-
+#creating superadmin logins
+def create_admin(request):
+    if not User.objects.filter(username="admin").exists():
+        User.objects.create_superuser(
+            username="admin",
+            email="livkitadmin@gmail.com",
+            password="Admin12345"
+        )
+        return HttpResponse("Superuser created")
+    return HttpResponse("Admin already exists")
 
 
 
