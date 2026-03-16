@@ -53,15 +53,15 @@ from .serializers import ForgotPasswordSerializer, ResetPasswordSerializer
 User = get_user_model()
 
 #creating superadmin logins
-def create_admin(request):
-    if not User.objects.filter(username="admin").exists():
-        User.objects.create_superuser(
-            username="admin",
-            email="livkitadmin@gmail.com",
-            password="Admin12345"
-        )
-        return HttpResponse("Superuser created")
-    return HttpResponse("Admin already exists")
+#def create_admin(request):
+ #   if not User.objects.filter(username="admin").exists():
+  #      User.objects.create_superuser(
+   #         username="admin",
+    #        email="--",
+      #      password="--"
+     #   )
+      #  return HttpResponse("Superuser created")
+   # return HttpResponse("Admin already exists")
 
 
 
